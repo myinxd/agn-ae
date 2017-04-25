@@ -148,7 +148,7 @@ def get_predict(cae,img):
     img_pred = np.rint(256. * img_pred).astype(int)
     img_pred = np.clip(img_pred, a_min=0, a_max=255)
     img_pred = img_pred.astype('uint8')
-    
+
 
     return img_pred
 
@@ -245,3 +245,53 @@ def load_net(netpath):
     cae = pickle.load(fp)
 
     return cae
+
+def get_concate(cae, layer_idx, savefolder, perline=4):
+    """
+    Concate the feature maps into a large image
+
+    inputs
+    ======
+    cae: nolearn.lasagne.NeuralNet
+        The network
+    layer_idx: int
+        The corresponding index of the ConvLayer
+    savefolder: str
+        The folder name to save images
+    """
+    from scipy.misc import imsave
+    # get layer
+    layer = cae.get_all_layers()[layer_idx]
+    if str(type(layer)).split('.')[-1] == "Conv2DLayer'>":
+        weights = layer.get_params()[0]
+        maps = weights.get_value()
+    else:
+        print("The layer does not a conv layer.")
+        return
+
+    # Normalization
+    maps_max = np.max(maps)
+    maps_min = np.min(maps)
+    maps_norm = (maps - maps_min) / (maps_max - maps_min)
+    # maps_norm = np.clip(np.rint(maps_norm) * 255, a_min=0, a_max=255)
+    # maps_norm = maps_norm.astype('uint8')
+    # save maps
+    if os.path.exists(savefolder):
+        os.system("rm -r %s" % savefolder)
+        os.mkdir(savefolder)
+    else:
+        os.mkdir(savefolder)
+
+    for i in range(maps_norm.shape[0]):
+        fname = ('map_%d.png' % i)
+        f = os.path.join(savefolder,fname)
+        # resize: zoom in
+        map_res = maps_norm[i,0,:,:]
+        map_res = transform.resize(map_res,(50,50),mode="reflect")
+        imsave(f,map_res)
+
+    # get concate
+    print("Concating the maps")
+    pathcon = os.path.join(savefolder,'map_con.png')
+    os.system("montage -mode concatenate -tile %dx %s/*.png %s" % (perline, savefolder,pathcon))
+
