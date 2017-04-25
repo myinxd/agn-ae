@@ -11,10 +11,10 @@ import scipy.io as sio
 from scipy.misc import imread
 from skimage import transform
 
-def load_sample(folder, ftype='jpg', savepath=None,
+def gen_sample(folder, ftype='jpg', savepath=None,
                 crop_box=(200, 200), res_box=(50, 50)):
     """
-    Load the sample images and reshape to required structure
+    Read the sample images and reshape to required structure
 
     input
     =====
@@ -63,7 +63,7 @@ def load_sample(folder, ftype='jpg', savepath=None,
                         col_cnt+col_crop_half]
             # resize
             img_rsz = transform.resize(
-                img_crop.astype('uint8'),res_box)
+                img_crop/255,res_box,mode='reflect')
             # push into sample_mat
             img_vec = img_rsz.reshape((res_box[0]*res_box[1],))
             sample_mat[idx,:] = img_vec
@@ -88,3 +88,156 @@ def load_sample(folder, ftype='jpg', savepath=None,
 
     return sample_mat
 
+def load_sample(samplepath):
+    """Load the sample matrix
+
+    input
+    =====
+    samplepath: str
+        Path to save the samples
+    """
+    ftype = samplepath.split('.')[-1]
+    if ftype == 'pkl':
+        try:
+            fp = open(samplepath, 'rb')
+        except:
+            return None
+        sample_dict = pickle.load(fp)
+        sample_mat = sample_dict['data']
+        sample_list = sample_dict['name']
+    elif ftype == 'mat':
+        try:
+            sample_dict = sio.loadmat(samplepath)
+        except:
+            return None
+        sample_mat = sample_dict['data']
+        sample_list = sample_dict['name']
+
+    return sample_mat, sample_list
+
+def get_predict(cae,img):
+    """
+    Predict the output of the input image
+
+    input
+    =====
+    img: np.ndarray
+        The image matrix, (r,c)
+
+    output
+    ======
+    img_pred: np.ndarray
+        The predicted image matrix
+    """
+    if img.dtype != 'float32':
+        img = img.astype('float32')
+
+    if len(img.shape) == 4:
+        rows = img.shape[2]
+        cols = img.shape[3]
+    elif len(img.shape) == 3:
+        rows = img.shape[1]
+        cols = img.shape[2]
+        img = img.reshape(img.shape[0],1,rows,cols)
+    elif len(img.shape) == 2:
+        rows,cols = img.shape
+        img = img.reshape(1,1,rows,cols)
+    else:
+        print("The shape of image should be 2 or 3 d")
+    img_pred = cae.predict(img).reshape(-1, rows, cols)
+
+    return img_pred
+
+def get_encode(cae, img):
+    """Encode or compress on the sample
+
+    input
+    =====
+    img: np.ndarray
+        The sample matrix
+
+    output
+    ======
+    img_en: np.ndarray
+        The encoded matrix
+    """
+    from lasagne.layers import get_output
+
+    if len(img.shape) == 4:
+        rows = img.shape[2]
+        cols = img.shape[3]
+    elif len(img.shape) == 3:
+        rows = img.shape[1]
+        cols = img.shape[2]
+        img = img.reshape(img.shape[0],1,rows,cols)
+    elif len(img.shape) == 2:
+        rows,cols = img.shape
+        img = img.reshape(1,1,rows,cols)
+    else:
+        print("The shape of image should be 2 or 3 d")
+
+    def get_layer_by_name(net, name):
+        for i, layer in enumerate(net.get_all_layers()):
+            if layer.name == name:
+                return layer, i
+        return None, None
+
+    encode_layer, encode_layer_index = get_layer_by_name(cae, 'encode')
+    img_en =  get_output(encode_layer, inputs=img).eval()
+
+    return img_en
+
+def get_decode(cae, img_en):
+    """Decode to output the recovered image
+
+    input
+    =====
+    img_en: np.ndarray
+        The encoded matrix
+
+    output
+    ======
+    img_de: np.ndarray
+        The recovered or predicted image matrix
+    """
+    from lasagne.layers import get_output, InputLayer
+
+    def get_layer_by_name(net, name):
+        for i, layer in enumerate(net.get_all_layers()):
+            if layer.name == name:
+                return layer, i
+        return None, None
+
+    encode_layer, encode_layer_index = get_layer_by_name(cae,'encode')
+    # decoder
+    new_input = InputLayer(shape=(None,encode_layer.num_units))
+    layer_de_input = cae.get_all_layers()[encode_layer_index + 1]
+    layer_de_input.input_layer = new_input
+    layer_de_output = cae.get_all_layers()[-1]
+
+    img_de = get_output(layer_de_output, img_en).eval()
+
+    return img_de
+
+def load_net(netpath):
+    """
+    Load the cae network
+
+    input
+    =====
+    netpath: str
+        Path to save the trained network
+
+    output
+    ======
+    cae: learn.lasagne.base.NeuralNet
+       The trained network
+    """
+    try:
+        fp = open(netpath,'rb')
+    except:
+        return None
+
+    cae = pickle.load(fp)
+
+    return cae
