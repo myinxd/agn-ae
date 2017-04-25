@@ -100,7 +100,7 @@ class ConvAE():
                 rows = rows // 2
                 cols = cols // 2
         # full connected layer
-        num_en_fc = rows * cols * self.kernel_size[-1]
+        num_en_fc = rows * cols * self.kernel_num[-1]
         l_en_fc = (ReshapeLayer, {'shape': (([0], -1))})
         self.layers.append(l_en_fc)
         # dense
@@ -109,7 +109,7 @@ class ConvAE():
             self.layers.append(l_en_dense)
         # encoder layer
         l_en = (DenseLayer,
-                {'name': 'encode', 'num_units': self.encoder_nodes})
+                {'name': 'encode', 'num_units': self.encode_nodes})
         self.layers.append(l_en)
 
         # Decoder: reverse
@@ -118,24 +118,30 @@ class ConvAE():
             l_de_dense = (DenseLayer, {'num_units': self.fc_nodes[i]})
             self.layers.append(l_de_dense)
         # fc
-        l_de_fc = (DenseLayer, {'shape': num_en_fc})
+        l_de_fc = (DenseLayer, {'num_units': num_en_fc})
         self.layers.append(l_de_fc)
         # fc to kernels
         l_de_fc_m = (ReshapeLayer,
-                     {'shape': ((self.kernel_size[-1], rows, cols))})
+                     {'shape': (([0], self.kernel_num[-1], rows, cols))})
         self.layers.append(l_de_fc_m)
         # Conv and pool
         for i in range(len(self.kernel_size)-1, -1, -1):
             # pool
             if self.pool_flag[i]:
                 l_de_pool = (Upscale2DLayer,
-                             {'pool_size': self.pool_size})
+                             {'scale_factor': self.pool_size})
                 self.layers.append(l_de_pool)
             # conv
-            l_de_conv = (Conv2DLayer,
-                         {'num_filters': self.kernel_num[i],
-                          'filter_size': self.kernel_size[i],
-                          'pad': pad_out})
+            if i > 0:
+                l_de_conv = (Conv2DLayer,
+                             {'num_filters': self.kernel_num[i],
+                              'filter_size': self.kernel_size[i],
+                              'pad': pad_out})
+            else:
+                l_de_conv = (Conv2DLayer,
+                             {'num_filters': 1,
+                              'filter_size': self.kernel_size[i],
+                              'pad': pad_out})
             self.layers.append(l_de_conv)
         # output
         self.layers.append((ReshapeLayer, {'shape': (([0], -1))}))
@@ -184,7 +190,7 @@ class ConvAE():
         elif len(img.shape) == 3:
             rows = img.shape[1]
             cols = img.shape[2]
-            img = img.reshape(1,img.shape[0],rows,cols)
+            img = img.reshape(img.shape[0],1,rows,cols)
         elif len(img.shape) == 2:
             rows,cols = img.shape
             img = img.reshape(1,1,rows,cols)
@@ -213,7 +219,7 @@ class ConvAE():
         elif len(img.shape) == 3:
             rows = img.shape[1]
             cols = img.shape[2]
-            img = img.reshape(1,img.shape[0],rows,cols)
+            img = img.reshape(img.shape[0],1,rows,cols)
         elif len(img.shape) == 2:
             rows,cols = img.shape
             img = img.reshape(1,1,rows,cols)
