@@ -10,6 +10,7 @@ import numpy as np
 import scipy.io as sio
 from scipy.misc import imread
 from skimage import transform
+from scipy.signal import convolve2d as conv2
 
 def gen_sample(folder, ftype='jpg', savepath=None,
                 crop_box=(200, 200), res_box=(50, 50)):
@@ -250,6 +251,10 @@ def get_concate(cae, layer_idx, savefolder, perline=4):
     """
     Concate the feature maps into a large image
 
+    Reference
+    =========
+    [1] scipy.signal.convolve2d
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.convolve2d.html
     inputs
     ======
     cae: nolearn.lasagne.NeuralNet
@@ -293,5 +298,78 @@ def get_concate(cae, layer_idx, savefolder, perline=4):
     # get concate
     print("Concating the maps")
     pathcon = os.path.join(savefolder,'map_con.png')
+    print("montage -mode concatenate -tile %dx %s/*.png %s" % (perline, savefolder,pathcon))
     os.system("montage -mode concatenate -tile %dx %s/*.png %s" % (perline, savefolder,pathcon))
 
+def get_conv(cae, layer_idx, img, savefolder=None, perline=4):
+    """A naive convolution method
+
+    inputs
+    ======
+    cae: nolearn.lasagne.NeuralNet
+        The trained cae network
+    layer_idx: int
+        The index w.r.t. the network
+    img: np.ndarray (r,c)
+        The image to be convolved
+
+    outputs
+    =======
+    img_conv: np.ndarray (w,r+s-1,c+s-1)
+    """
+    from scipy.misc import imsave
+    # Judge image dimenstion
+    if len(img.shape) > 2:
+        if img.shape[0] > 1:
+            print("Only a single image can be processed...sorry")
+            return
+        else:
+            rows_img = img.shape[-2]
+            cols_img = img.shape[-1]
+            img = img.reshape(rows_img, cols_img)
+    else:
+        rows_img,cols_img = img.shape
+    # get layer
+    layer = cae.get_all_layers()[layer_idx]
+    if str(type(layer)).split('.')[-1] == "Conv2DLayer'>":
+        weights = layer.get_params()[0]
+        maps = weights.get_value()
+    else:
+        print("The layer does not a conv layer.")
+        return
+    # convolution
+    rows_map = maps.shape[-2]
+    cols_map = maps.shape[-1]
+    img_conv = np.zeros((maps.shape[0],
+                        rows_img-rows_map+1,
+                        cols_img-cols_map+1))
+    for i in range(maps.shape[0]):
+        img_conv[i,:,:] = conv2(img, maps[i,0,:,:], mode='valid')
+
+    # Normalization
+    conv_max = np.max(img_conv)
+    conv_min = np.min(img_conv)
+    img_norm = (img_conv - conv_min) / (conv_max - conv_min)
+    # maps_norm = np.clip(np.rint(maps_norm) * 255, a_min=0, a_max=255)
+    # maps_norm = maps_norm.astype('uint8')
+    # save maps
+    if os.path.exists(savefolder):
+        os.system("rm -r %s" % savefolder)
+        os.mkdir(savefolder)
+    else:
+        os.mkdir(savefolder)
+
+    for i in range(img_norm.shape[0]):
+        fname = ('conv_%d.png' % i)
+        f = os.path.join(savefolder,fname)
+        # resize: zoom in
+        conv_res = img_norm[i,:,:]
+        conv_res = transform.resize(conv_res,(50,50),mode="reflect")
+        imsave(f,conv_res)
+    # get concate
+    print("Concating the convolved maps")
+    pathcon = os.path.join(savefolder,'conv_con.png')
+    print("montage -mode concatenate -tile %dx %s/*.png %s" % (perline, savefolder,pathcon))
+    os.system("montage -mode concatenate -tile %dx %s/*.png %s" % (perline, savefolder,pathcon))
+
+    return img_conv
