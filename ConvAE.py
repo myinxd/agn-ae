@@ -146,7 +146,9 @@ class ConvAE():
         # output
         self.layers.append((ReshapeLayer, {'shape': (([0], -1))}))
 
-    def cae_build(self, max_epochs=20, learning_rate=0.001, momentum=0.9):
+    def cae_build(self, max_epochs=20, 
+                  learning_rate=0.001, momentum=0.9, 
+                  verbose=1):
         """Build the network"""
         self.cae = NeuralNet(
             layers = self.layers,
@@ -155,7 +157,7 @@ class ConvAE():
             update_learning_rate = learning_rate,
             update_momentum = momentum,
             regression = True,
-            verbose = 1)
+            verbose = verbose)
 
     def cae_train(self):
         """Train the cae net"""
