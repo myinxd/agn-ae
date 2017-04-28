@@ -34,8 +34,21 @@ The `requirements.txt` is provided in this repository, by which the required pac
 
 In addition, the computation can be accelerated by parallelly processing with GPUs. In this work, our scripts are written under the guide of Nvidia CUDA, thus the Nvidia GPU hardware is also required.
 
-- CUDA Toolkit
+- CUDA  
   https://developer.nvidia.com/cuda-downloads
+
+## Download data
+We provide a module namely [dataDownload](https://github.com/myinxd/agn-ae/blob/master/dataDownload.py) to fetch the radio observations from FIRST archive. And the usage of the module is as follows,
+```sh
+	$ python3 dataDownload.py <listpath> <batchsize> <savefolder>
+```
+And the output will be like this,
+```sh
+	[2017-04-28]: Downloading samples from https://third.ucllnl.org/cgi-bin/firstcutout
+[2017-04-28]: Fetching J072734.289+644059.80.fits
+[2017-04-28]: Fetching J073839.304+644016.28.fits
+...    
+```
 
 ## References
 - Theano tutorial 
