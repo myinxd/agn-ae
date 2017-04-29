@@ -22,14 +22,14 @@ The `requirements.txt` is provided in this repository, by which the required pac
 
 - initialize env
 ```sh
-   $ <sudo> pip install virtualenv
-   $ cd agn-ae
-   $ virtualenv ./env
+$ <sudo> pip install virtualenv
+$ cd agn-ae
+$ virtualenv ./env
 ```
 - install required packages
 ```sh
-   $ cd agn-ae
-   $ env/bin/pip install -r ./requirements.txt
+$ cd agn-ae
+$ env/bin/pip install -r ./requirements.txt
 ```
 
 In addition, the computation can be accelerated by parallelly processing with GPUs. In this work, our scripts are written under the guide of Nvidia CUDA, thus the Nvidia GPU hardware is also required.
@@ -40,7 +40,7 @@ In addition, the computation can be accelerated by parallelly processing with GP
 ## Download data
 We provide a module namely [dataDownload](https://github.com/myinxd/agn-ae/blob/master/dataDownload.py) to fetch the radio observations from FIRST archive. And the usage of the module is as follows,
 ```sh
-	$ python3 dataDownload.py <listpath> <batchsize> <savefolder>
+$ python3 dataDownload.py <listpath> <batchlow> <batchhigh> <savefolder>
 ```
 And the output will be like this,
 ```sh
