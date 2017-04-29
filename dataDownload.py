@@ -19,10 +19,8 @@ References
 # import ssl
 import os
 import requests
-# from pandas import read_csv
 import numpy as np
 import argparse
-# import warnings
 
 class DataFetcher():
     """
@@ -82,7 +80,7 @@ class DataFetcher():
         """
         try:
             self.data_requests = requests.get(url=self.url,
-                                              params=self.parms)
+                                              params=self.params)
         except: #ssl.SSLError:
             self.data_requests = requests.get(url=self.url,
                                               params=self.params,
@@ -122,7 +120,7 @@ def bin2csv(binpath, savepath):
     fb.close()
     fs.close()
 
-def batch_download(dataFetcher, listpath, batchsize, savefolder):
+def batch_download(dataFetcher, listpath, batch, savefolder):
     """Batch download the samples
 
     Inputs
@@ -131,8 +129,8 @@ def batch_download(dataFetcher, listpath, batchsize, savefolder):
         The data fetcher that hosts url and params
     listpath: str
         The path of the data list
-    batchsize: int
-        Number of samples to fatch
+    batch: tuple
+        The region of indices w.r.t. samples to be fetched.
     savefolder: str
         Folder to save the fetched sample files
     """
@@ -142,13 +140,20 @@ def batch_download(dataFetcher, listpath, batchsize, savefolder):
 
     # open listpath
     f = open(listpath,'rb')
-    sample_line = f.readline() # The first line is not required.
+    lines = f.readlines() # The first line is not required.
+    # regularize the batch
+    if batch[0] <=0:
+        batch[0] = 1
+    if batch[1] > len(lines):
+        batch[1] = len(lines)
+    # log file optional
+    fl = open('log.txt', 'a')
     # Iteration body
-    for i in range(batchsize):
+    for i in range(batch[0], batch[1]+1):
         # timestamp
         t = time.strftime('%Y-%m-%d',time.localtime(time.time()))
         # get params
-        sample_line = str(f.readline(), 'utf-8').split(' ')
+        sample_line = str(lines[i], 'utf-8').split(' ')
         update_ra = ' '.join(sample_line[0:6])
         update_param = {'RA': update_ra}
         # update param
@@ -156,10 +161,15 @@ def batch_download(dataFetcher, listpath, batchsize, savefolder):
         # download file
         fname = 'J' + ''.join(sample_line[0:6]) + '.fits'
         savepath = os.path.join(savefolder,fname)
-        dataFetcher.save_data(savepath)
+        try:
+            dataFetcher.save_data(savepath)
+        except:
+            fl.write("%d: %s" % (i, fname))
+            continue
         # print log
         print('[%s]: Fetching %s' % (t, fname))
-
+    f.close()
+    fl.close()
 
 def main():
     # Init
@@ -167,12 +177,13 @@ def main():
     # Parameters
     # parser.add_argument("url", help="URL of the archive'")
     parser.add_argument("listpath", help="Path of the sample list.")
-    parser.add_argument("batchsize", help="Size of the batch.")
+    parser.add_argument("batchlow", help="Begin index of the batch.")
+    parser.add_argument("batchhigh",help="End index of the batch.")
     parser.add_argument("savefolder", help="The folder to save files.")
     args = parser.parse_args()
 
     listpath = args.listpath
-    batchsize = int(args.batchsize)
+    batch = (int(args.batchlow),int(args.batchhigh))
     savefolder = args.savefolder
 
     if not os.path.exists(savefolder):
@@ -193,9 +204,8 @@ def main():
     # download
     batch_download(dataFetcher=df,
                    listpath=listpath,
-                   batchsize=batchsize,
+                   batch=batch,
                    savefolder=savefolder)
 
 if __name__ == "__main__":
     main()
-
