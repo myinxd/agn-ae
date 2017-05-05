@@ -8,6 +8,7 @@ import os
 import pickle
 import numpy as np
 import scipy.io as sio
+from astropy.io import fits
 from scipy.misc import imread
 from skimage import transform
 from scipy.signal import convolve2d as conv2
@@ -45,13 +46,21 @@ def gen_sample(folder, ftype='jpg', savepath=None,
     sample_mat = np.zeros((len(sample_list),
                            res_box[0]*res_box[1]))
 
+    def read_image(fpath,ftype):
+        if ftype == 'fits':
+            h = fits.open(fpath)
+            img = h[0].data
+        else:
+            img = imread(name=fpath, flatten=True)
+        return img
+
     # load images
     idx = 0
     for fname in sample_list:
         fpath = os.path.join(folder,fname)
         if fpath.split('.')[-1] == ftype:
             #read image
-            img = imread(name=fpath, flatten=True)
+            img = read_image(fpath=fpath, ftype=ftype)
             # crop
             rows, cols = img.shape
             row_cnt = int(np.round(rows/2))
