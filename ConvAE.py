@@ -68,6 +68,11 @@ class ConvAE():
         self.fc_nodes = fc_nodes
         self.encode_nodes = encode_nodes
 
+    def gen_BatchIterator(self,batch_size=100):
+        """Generate the batch iterator"""
+        B = BatchIterator(batch_size=batch_size, shuffle=True)
+        return B
+
     def gen_layers(self):
         """Construct the layers"""
 
@@ -146,25 +151,38 @@ class ConvAE():
         # output
         self.layers.append((ReshapeLayer, {'shape': (([0], -1))}))
 
-    def cae_build(self, max_epochs=20, 
-                  learning_rate=0.001, momentum=0.9, 
+    def cae_build(self, max_epochs=20, batch_size=100,
+                  learning_rate=0.001, momentum=0.9,
                   verbose=1):
         """Build the network"""
-        self.cae = NeuralNet(
-            layers = self.layers,
-            max_epochs = max_epochs,
-            update=lasagne.updates.nesterov_momentum,
-            update_learning_rate = learning_rate,
-            update_momentum = momentum,
-            regression = True,
-            verbose = verbose)
+        if batch_size is None:
+            self.cae = NeuralNet(
+                layers = self.layers,
+                max_epochs = max_epochs,
+                update=lasagne.updates.nesterov_momentum,
+                update_learning_rate = learning_rate,
+                update_momentum = momentum,
+                regression = True,
+                verbose = verbose)
+        else:
+            # batch iterator
+            batch_iterator = self.gen_BatchIterator(batch_size=batch_size)
+            self.cae = NeuralNet(
+                layers = self.layers,
+                batch_iterator_train = batch_iterator,
+                max_epochs = max_epochs,
+                update=lasagne.updates.nesterov_momentum,
+                update_learning_rate = learning_rate,
+                update_momentum = momentum,
+                regression = True,
+                verbose = verbose)
+
 
     def cae_train(self):
         """Train the cae net"""
         print("Training the network...")
         self.cae.fit(self.X_in, self.X_out)
-        print("Trainong done.")
-
+        print("Training done.")
     def cae_eval(self):
         """Draw evaluation lines
         <TODO>
