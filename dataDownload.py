@@ -1,7 +1,7 @@
 # Copyright (C) 2017 Zhixian MA <zxma_sjtu@qq.com>
 
 """
-This script assist us to fetch observations, i.e., the sample images from
+This script assists us to fetch observations, i.e., the sample images from
 the archive. In this work, the data are from the FIRST archive.
 
 Target URL: https://third.ucllnl.org/cgi-bin/firstcutout/
