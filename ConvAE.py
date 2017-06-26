@@ -177,12 +177,12 @@ class ConvAE():
                 regression = True,
                 verbose = verbose)
 
-
     def cae_train(self):
         """Train the cae net"""
         print("Training the network...")
         self.cae.fit(self.X_in, self.X_out)
         print("Training done.")
+ 
     def cae_eval(self):
         """Draw evaluation lines
         <TODO>
