@@ -13,6 +13,39 @@ from scipy.misc import imread
 from skimage import transform
 from scipy.signal import convolve2d as conv2
 
+def gen_splits(img, boxsize=200, stride=50):
+    """
+    Generate samples by splitting the large image into patches
+    Input
+    -----
+    img: np.ndarray
+        The 2D raw image
+    boxsize: integer
+        Size of the box, default as 200
+    stride: integer
+        Shifted pixels, default as 50
+    Output
+    ------
+    data: np.ndarray
+        The matrix holding samples, each slice represents one sample
+    """
+    # Init
+    rows, cols = img.shape
+    # Number of boxes
+    box_rows = int(np.round((rows - boxsize - 1) / stride)) + 1
+    box_cols = int(np.round((cols - boxsize - 1) / stride)) + 1
+    # init data and label
+    data = np.zeros((box_rows * box_cols, boxsize*boxsize))
+
+    # Split
+    for i in range(box_rows):
+        for j in range(box_cols):
+            sample = img[i * stride:i * stride + boxsize,
+                         j * stride:j * stride + boxsize]
+            data[i * box_rows + j, :] = sample.reshape((boxsize*boxsize,))
+
+    return data
+
 def gen_sample(folder, ftype='jpg', savepath=None,
                 crop_box=(200, 200), res_box=(50, 50)):
     """
