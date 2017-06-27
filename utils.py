@@ -12,6 +12,7 @@ from astropy.io import fits
 from scipy.misc import imread
 from skimage import transform
 from scipy.signal import convolve2d as conv2
+from astropy.stats import sigma_clip
 
 def gen_splits(img, boxsize=200, stride=50):
     """
@@ -47,7 +48,7 @@ def gen_splits(img, boxsize=200, stride=50):
     return data
 
 def gen_sample(folder, ftype='jpg', savepath=None,
-                crop_box=(200, 200), res_box=(50, 50)):
+                crop_box=(200, 200), res_box=(50, 50), clipflag=False, clipparam=None):
     """
     Read the sample images and reshape to required structure
 
@@ -64,6 +65,10 @@ def gen_sample(folder, ftype='jpg', savepath=None,
         Boxsize of the cropping of the center region
     res_box: tuple
         Scale of the resized image
+    clipflag: booling
+        The flag of sigma clipping, default as False
+    clipparam: list
+        Parameters of the sigma clipping, [sigma, iters]
 
     output
     ======
@@ -107,6 +112,10 @@ def gen_sample(folder, ftype='jpg', savepath=None,
             # resize
             img_rsz = transform.resize(
                 img_crop/255,res_box,mode='reflect')
+            if clipflag:
+                img_rsz = get_sigma_clip(img_rsz,
+                                         sigma=clipparam[0],
+                                         iters=clipparam[1])
             # push into sample_mat
             img_vec = img_rsz.reshape((res_box[0]*res_box[1],))
             sample_mat[idx,:] = img_vec
@@ -415,3 +424,20 @@ def get_conv(cae, layer_idx, img, savefolder=None, perline=4):
     os.system("montage -mode concatenate -tile %dx %s/*.png %s" % (perline, savefolder,pathcon))
 
     return img_conv
+
+def get_sigma_clip(img,sigma=3,iters=100):
+    """
+    Do sigma clipping on the raw images to improve constrast of
+    target regions.
+
+    Reference
+    =========
+    [1] sigma clip
+        http://docs.astropy.org/en/stable/api/astropy.stats.sigma_clip.html
+    """
+    img_clip = sigma_clip(img, sigma=sigma, iters=iters)
+    img_mask = img_clip.mask.astype(float)
+    img_new = img * img_mask
+
+    return img_new
+
