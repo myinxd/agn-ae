@@ -441,3 +441,63 @@ def get_sigma_clip(img,sigma=3,iters=100):
 
     return img_new
 
+def get_sample_info(infopath):
+    """
+    Read samples' infomation, in this work, they are mannually
+    classified into odd (1), noisy (2), and normal (3)
+    """
+    from scipy.io import loadmat
+    data = loadmat(infopath)
+
+    info = data['info']
+
+    return info[:,0]
+
+def sort_sample(inpath, savepath=None):
+    """
+    Sort the samples' names which are namely with integers, into descending
+    sort, as well as the corresponding image data.
+
+    Inputs
+    ======
+    inpath: str
+        Path of the unsorted samples
+    outpath: str
+        Path of the sorted ones, if set as None, the inpath will be used.
+    """
+    with open(inpath, 'rb') as fp:
+        datadict = pickle.load(fp)
+
+    data = datadict['data']
+    name = datadict['name']
+
+    # rename the files with equai-length name
+    numsamples = data.shape[0]
+    # maximun number of characters in a sample name
+    maxch = len(str(numsamples))
+    # rename
+    for i in range(numsamples):
+        s = name[i]
+        n = s.split('.')
+        # fill
+        n[0] = '0'*(maxch - len(n[0])) + n[0]
+        # rename
+        name[i] = '.'.join(n)
+
+    # sort
+    idx_sort = np.argsort(name)
+    name_array = np.array(name)
+
+    name_sort = name_array[idx_sort]
+    data_sort = data[idx_sort]
+
+    # save
+    datadict['name'] = name_sort
+    datadict['data'] = data_sort
+
+    if savepath is None:
+        savepath = inpath
+
+    with open(savepath, 'wb') as f:
+        pickle.dump(datadict, f)
+
