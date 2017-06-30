@@ -16,6 +16,7 @@ import lasagne
 from lasagne.layers import get_output
 from lasagne.layers import InputLayer, DenseLayer, Upscale2DLayer, ReshapeLayer
 from lasagne.layers import Conv2DLayer, MaxPool2DLayer
+from lasagne.layers import DropoutLayer
 from nolearn.lasagne import NeuralNet, BatchIterator, PrintLayerInfo
 
 class ConvAE():
@@ -55,7 +56,8 @@ class ConvAE():
 
     def __init__(self, X_in, X_out, kernel_size=[3,5,3],
                  kernel_num=[12,12,24], pool_flag=[True,True,True],
-                fc_nodes=[128], encode_nodes=16):
+                 fc_nodes=[128], encode_nodes=16, 
+                 droprate=0.5, dropflag=True):
         """
         The initializer
         """
@@ -67,6 +69,8 @@ class ConvAE():
         self.pool_size = 2
         self.fc_nodes = fc_nodes
         self.encode_nodes = encode_nodes
+        self.droprate = droprate
+        self.dropflag = dropflag
 
     def gen_BatchIterator(self,batch_size=100):
         """Generate the batch iterator"""
@@ -93,6 +97,9 @@ class ConvAE():
             l_en_conv = (Conv2DLayer,
                          {'num_filters': self.kernel_num[i],
                           'filter_size': self.kernel_size[i],
+                          'nonlinearity': lasagne.nonlinearities.rectify,
+                          'W': lasagne.init.GlorotUniform(),
+                          'b': lasagne.init.Constant(0.),
                           'pad': pad_in})
             self.layers.append(l_en_conv)
             rows = rows - self.kernel_size[i] + 1
@@ -104,27 +111,54 @@ class ConvAE():
                 self.layers.append(l_en_pool)
                 rows = rows // 2
                 cols = cols // 2
+        # drop
+        if not self.dropflag:
+            self.droprate = 0
+        l_drop = (DropoutLayer, {'p': self.droprate})
         # full connected layer
         num_en_fc = rows * cols * self.kernel_num[-1]
-        l_en_fc = (ReshapeLayer, {'shape': (([0], -1))})
+        l_en_fc = (ReshapeLayer, 
+                    {'shape': (([0], -1))})
         self.layers.append(l_en_fc)
+        self.layers.append(l_drop)
         # dense
         for i in range(len(self.fc_nodes)):
-            l_en_dense = (DenseLayer, {'num_units': self.fc_nodes[i]})
+            l_en_dense = (DenseLayer, 
+                    {'num_units': self.fc_nodes[i],
+                     'nonlinearity': lasagne.nonlinearities.rectify,
+                     'W': lasagne.init.GlorotUniform(),
+                     'b': lasagne.init.Constant(0.)}
+                    )
             self.layers.append(l_en_dense)
+            self.layers.append(l_drop)
         # encoder layer
         l_en = (DenseLayer,
-                {'name': 'encode', 'num_units': self.encode_nodes})
+                {'name': 'encode', 
+                 'num_units': self.encode_nodes,
+                 'nonlinearity': lasagne.nonlinearities.rectify,
+                 'W': lasagne.init.GlorotUniform(),
+                 'b': lasagne.init.Constant(0.)})
         self.layers.append(l_en)
+        self.layers.append(l_drop)
 
         # Decoder: reverse
         # dense
         for i in range(len(self.fc_nodes)-1, -1, -1):
-            l_de_dense = (DenseLayer, {'num_units': self.fc_nodes[i]})
+            l_de_dense = (DenseLayer, 
+                    {'num_units': self.fc_nodes[i],
+                     'nonlinearity': lasagne.nonlinearities.rectify,
+                     'W': lasagne.init.GlorotUniform(),
+                     'b': lasagne.init.Constant(0.)})
             self.layers.append(l_de_dense)
+            self.layers.append(l_drop)
         # fc
-        l_de_fc = (DenseLayer, {'num_units': num_en_fc})
+        l_de_fc = (DenseLayer, 
+                {'num_units': num_en_fc,
+                 'nonlinearity': lasagne.nonlinearities.rectify,
+                 'W': lasagne.init.GlorotUniform(),
+                 'b': lasagne.init.Constant(0.)})
         self.layers.append(l_de_fc)
+        self.layers.append(l_drop)
         # fc to kernels
         l_de_fc_m = (ReshapeLayer,
                      {'shape': (([0], self.kernel_num[-1], rows, cols))})
@@ -141,11 +175,17 @@ class ConvAE():
                 l_de_conv = (Conv2DLayer,
                              {'num_filters': self.kernel_num[i],
                               'filter_size': self.kernel_size[i],
+                              'nonlinearity': lasagne.nonlinearities.rectify,
+                              'W': lasagne.init.GlorotUniform(),
+                              'b': lasagne.init.Constant(0.),
                               'pad': pad_out})
             else:
                 l_de_conv = (Conv2DLayer,
                              {'num_filters': 1,
                               'filter_size': self.kernel_size[i],
+                              'nonlinearity': lasagne.nonlinearities.rectify,
+                              'W': lasagne.init.GlorotUniform(),
+                              'b': lasagne.init.Constant(0.),
                               'pad': pad_out})
             self.layers.append(l_de_conv)
         # output
@@ -298,7 +338,12 @@ class ConvAE():
             Path of the net to be saved
         """
         import pickle
-        fp = open(savepath, 'wb')
+        try:
+            fp = open(savepath, 'wb')
+        except FileNotFoundError:
+            import os
+            os.system("touch %s" % savepath)
+            fp = open(savepath, 'wb')
         # write
         pickle.dump(self.cae, fp)
         fp.close()
