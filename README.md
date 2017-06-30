@@ -62,8 +62,8 @@ And the output will be like this,
 
 
 ## Authors
-- Chenxi SHAN <doveletter1991@gmail.com>
 - Zhixian MA <`zxma_sjtu(at)qq.com`>
+- Chenxi SHAN <`doveletter1991(at)gmail.com`>
 
 ## License
 Unless otherwise declared:
