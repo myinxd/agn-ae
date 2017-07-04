@@ -197,10 +197,6 @@ def get_predict(cae,img):
     else:
         print("The shape of image should be 2 or 3 d")
     img_pred = cae.predict(img).reshape(-1, rows, cols)
-    img_pred = np.rint(256. * img_pred).astype(int)
-    img_pred = np.clip(img_pred, a_min=0, a_max=255)
-    img_pred = img_pred.astype('uint8')
-
 
     return img_pred
 
