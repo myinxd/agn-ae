@@ -245,12 +245,12 @@ class ConvAE():
 
         # generate predicted images
         if hasattr(self, 'sess'):
-            img_pre = self.sess.run(self.l_de, feed_dict={self.l_in: img_te})
+            img_pred = self.sess.run(self.l_de, feed_dict={self.l_in: img_te})
         else:
             print("You should train the network.")
             return None
 
-        return img_pre
+        return img_pred
 
     def cae_save(self, savepath):
         """Save the net"""
