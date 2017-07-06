@@ -56,8 +56,8 @@ class ConvAE():
 
     def __init__(self, X_in, kernel_size=[3,3,3],
                  kernel_num=[10,10,10], pool_flag=[True,True,True],
-                 pool_size=[2,2,2], fc_nodes=[128], encode_nodes=16,
-                 droprate=0.5, dropflag=True):
+                 pool_size=[2,2,2], fc_nodes=[64], encode_nodes=10,
+                 ):
         """
         The initializer
         """
@@ -68,8 +68,8 @@ class ConvAE():
         self.pool_size=pool_size
         self.fc_nodes = fc_nodes
         self.encode_nodes = encode_nodes
-        self.droprate = droprate
-        self.dropflag = dropflag
+        self.droprate = tf.placeholder(tf.float32)
+
 
     def gen_BatchIterator(self, batch_size=100, shuffle=True):
         """
@@ -101,7 +101,7 @@ class ConvAE():
             yield self.X_in[excerpt]
 
     def cae_build(self):
-        """Construct the network"""
+        """Construct the network, including ConvLayers and FC layers."""
 
         # Useful methods
         def weight_variable(shape):
@@ -147,12 +147,12 @@ class ConvAE():
         for i, depth_output in enumerate(self.kernel_num):
             depth_input = current_input.get_shape().as_list()[3]
             self.shapes_en.append(current_input.get_shape().as_list())
-            W = weight_variable(shape=( self.kernel_size[i],
-                                        self.kernel_size[i],
-                                        depth_input,
-                                        depth_output,
-                                        ))
-            b = bias_variable(shape=(depth_output,))
+            W = weight_variable(shape=[self.kernel_size[i],
+                                       self.kernel_size[i],
+                                       depth_input,
+                                       depth_output,
+                                       ])
+            b = bias_variable(shape=[depth_output])
             self.encoder.append(W) # share
             output = tf.add(tf.nn.conv2d(current_input,
                                             W, strides=[1,2,2,1],
@@ -160,10 +160,70 @@ class ConvAE():
             output = tf.nn.relu(output)
             current_input = output
 
-        self.l_en = current_input
+        if self.encode_nodes is not None:
+            # Dense layer
+            shape_conv = current_input.get_shape().as_list()
+            depth_dense = shape_conv[1] * shape_conv[2] * shape_conv[3]
+            l_en_dense = tf.reshape(current_input, [-1, depth_dense])
+            # dropout layer
+            # keep_prob = tf.placeholder(tf.float32)
+            # fully connected
+            depth_input = depth_dense
+            current_input = l_en_dense
+            self.en_fc = [] # save and share weights of the fc layers
+            self.fc_depth=[] # depth_input of the encoder
+            for i, depth_output in enumerate(self.fc_nodes):
+                self.fc_depth.append(depth_input)
+                W = weight_variable(shape=[depth_input, depth_output])
+                b = bias_variable(shape=[depth_output])
+                self.en_fc.append(W) # share weight
+                output = tf.nn.relu(tf.matmul(current_input, W) + b)
+                # dropout
+                output = tf.nn.dropout(output, self.droprate)
+                current_input = output
+                depth_input = depth_output
 
-        print(self.shapes_en)
-        # decoder layers
+            # encode layer
+            W_en = weight_variable(shape=[depth_input, self.encode_nodes])
+            b_en = bias_variable(shape=[self.encode_nodes])
+            output = tf.nn.relu(tf.matmul(current_input, W_en) + b_en)
+            current_input = output
+            self.l_en = current_input
+
+            # decoder layers
+            W_de = tf.transpose(W_en)
+            if len(self.fc_nodes):
+                depth_output = self.fc_nodes[-1]
+            else:
+                depth_output = depth_dense
+            b_de = bias_variable(shape=[depth_output])
+            output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
+            current_input = output
+
+            # fc layers
+            for i in range(len(self.fc_nodes)-1, -1, -1):
+                depth_output = self.fc_depth[i]
+                W = tf.transpose(self.en_fc[i])
+                b = bias_variable(shape=[depth_output])
+                output = tf.nn.relu(tf.matmul(current_input, W) + b)
+                # dropout
+                output = tf.nn.dropout(output, self.droprate)
+                current_input = output
+
+            # Dense layer
+            # W_de = weight_variable(shape=[depth_input, depth_dense])
+            # b_de = bias_variable(shape=[depth_dense])
+            # output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
+            # current_input = tf.nn.dropout(output, self.droprate)
+            # reshape
+            current_input = tf.reshape(current_input,
+                                    [-1,
+                                        shape_conv[1],
+                                        shape_conv[2],
+                                        shape_conv[3]])
+        else:
+            self.l_en = current_input
+
         self.decoder = self.encoder.copy()
         self.decoder.reverse()
         self.shapes_de = self.shapes_en.copy()
@@ -194,7 +254,7 @@ class ConvAE():
         self.gen_cost()
         self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
 
-    def cae_train(self, num_epochs=20, learning_rate=0.01, batch_size=100):
+    def cae_train(self, num_epochs=20, learning_rate=0.01, batch_size=100, droprate=0.5):
         """Train the net"""
         self.gen_optimizer(learning_rate = learning_rate)
         init_op = tf.global_variables_initializer()
@@ -204,9 +264,9 @@ class ConvAE():
         # generate optimizer
         for epoch in range(num_epochs):
             for batch in self.gen_BatchIterator(batch_size=batch_size):
-                 self.sess.run(self.optimizer, feed_dict={self.l_in: batch})
+                self.sess.run(self.optimizer, feed_dict={self.l_in: batch, self.droprate: droprate})
 
-            print(epoch, self.sess.run(self.cost, feed_dict={self.l_in: batch}))
+            print(epoch, self.sess.run(self.cost, feed_dict={self.l_in: batch, self.droprate: droprate}))
 
     def cae_test(self, img):
         """Test the trained network,
@@ -245,12 +305,91 @@ class ConvAE():
 
         # generate predicted images
         if hasattr(self, 'sess'):
-            img_pred = self.sess.run(self.l_de, feed_dict={self.l_in: img_te})
+            img_pre = self.sess.run(self.l_de, feed_dict={self.l_in: img_te, self.droprate: 0.0})
         else:
             print("You should train the network.")
             return None
 
-        return img_pred
+        return img_pre
+
+    def cae_encode(self, img):
+        """Test the trained network,
+
+        Input
+        =====
+        img: np.ndarray
+            The images to be test.
+
+        Output
+        ======
+        code: np.ndarray
+            The encoded codes.
+        """
+        # params
+        depth = self.X_in.shape[3]
+        rows = self.X_in.shape[1]
+        cols = self.X_in.shape[2]
+        # Reshape the images
+        shapes = img.shape
+        if len(shapes) == 2:
+            if shapes[0] != rows or shapes[1] != cols:
+                print('The shape of the test images do not match the network.')
+                return None
+            img_te = img.reshape(1,rows,cols,depth)
+        elif len(shapes) == 3:
+            if shapes[0] != rows or shapes[1] != cols or shapes[2] != depth:
+                print('The shape of the test images do not match the network.')
+                return None
+            img_te = img.reshape(1,rows,cols,depth)
+        elif len(shapes) == 4:
+            if shapes[1] != rows or shapes[2] != cols or shapes[3] != depth :
+                print('The shape of the test images do not match the network.')
+                return None
+            img_te = img.reshape(shapes[0],rows,cols,depth)
+
+        # generate predicted images
+        if hasattr(self, 'sess'):
+            code = self.sess.run(self.l_en, feed_dict={self.l_in: img_te, self.droprate: 0.0})
+        else:
+            print("You should train the network.")
+            return None
+
+        return code
+
+
+    def cae_decode(self, code):
+        """Generate agn images with provided codes.
+
+        Input
+        =====
+        code: np.ndarray
+            The code to be decoded.
+
+        Output
+        ======
+        img_de: np.ndarray
+            The decoded and reconstructed images.
+        """
+        # Compare code length
+        code_len = self.l_en.get_shape()[1]
+        if code.shape[1] != code_len:
+            print("The length of provided codes should be equal to the network's")
+            return None
+        else:
+            # decoding
+            if hasattr(self, 'sess'):
+                l_in_shape = self.l_in.get_shape().as_list()
+                l_in_shape[0] = code.shape[0]
+                p_in = np.zeros(l_in_shape) # pseudo input
+                img_de = self.sess.run(self.l_de,
+                                       feed_dict={self.l_in: p_in,
+                                                  self.l_en: code,
+                                                  self.droprate: 0.0})
+            else:
+                print("You should train the network firstly.")
+                return None
+
+        return img_de
 
     def cae_save(self, savepath):
         """Save the net"""
