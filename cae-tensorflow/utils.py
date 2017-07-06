@@ -376,3 +376,49 @@ def sort_sample(inpath, savepath=None):
     with open(savepath, 'wb') as f:
         pickle.dump(datadict, f)
 
+def down_dimension(code, method='PCA', params=None):
+    """
+    Do dimension decreasing of the codes, so as to evaluate samples'
+    distributions.
+
+    Inputs
+    ======
+    code: np.ndarray
+        The estimated codes by the cae net on the samples.
+    method: str
+        The method of dimension decreasing, could be PCA, tSNE or Kmeans,
+        default as PCA.
+    params: dict
+        Corresponding parameters to the method.
+
+    Output
+    ======
+    code_dim: np.ndarray
+    The dimension decreased matrix.
+    """
+    if method == 'PCA':
+        from sklearn.decomposition import PCA
+        code_dim = PCA().fit_transform(code)
+    elif method == 'tSNE':
+        from sklearn.manifold import TSNE
+        tsne = TSNE()
+        for key in params.keys():
+            try:
+                setattr(tsne, key, params['key'])
+            except:
+                continue
+        code_dim = tsne.fit_transform(code)
+    elif method == 'Kmeans':
+        from sklearn.cluster import KMeans
+        code_dim = KMeans()
+        for key in params.keys():
+            try:
+                setattr(code_dim, key, params['key'])
+            except:
+                continue
+        code_dim.fit(code)
+    else:
+        print("The method %s is not supported at present." % method)
+
+    return code_dim
+
