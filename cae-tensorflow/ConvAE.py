@@ -68,7 +68,7 @@ class ConvAE():
         self.pool_size=pool_size
         self.fc_nodes = fc_nodes
         self.encode_nodes = encode_nodes
-        self.droprate = tf.placeholder(tf.float32)
+        self.droprate = tf.placeholder(tf.float32, name="droprate")
 
 
     def gen_BatchIterator(self, batch_size=100, shuffle=True):
@@ -140,7 +140,7 @@ class ConvAE():
         in_col = self.X_in.shape[2]
         self.l_in = tf.placeholder(tf.float32,
                                 [None,in_row,in_col,in_depth],
-                                name='x')
+                                name='l_in')
 
         # Encoder layers
         current_input = self.l_in
@@ -391,14 +391,21 @@ class ConvAE():
 
         return img_de
 
-    def cae_save(self, savepath):
+    def cae_save(self, namepath, netpath):
         """Save the net"""
         import pickle
         import sys
         sys.setrecursionlimit(1000000)
-        savedict = {'l_in': self.l_in,
-                   'l_en': self.l_en,
-                   'l_de': self.l_de,
-                   }
-        with open(savepath, 'wb') as fp:
+
+        # save the names
+        savedict = {'l_in': self.l_in.name,
+                   'l_en': self.l_en.name,
+                   'l_de': self.l_de.name,
+                    'droprate': self.droprate.name,
+                    'netpath': netpath}
+        with open(namepath, 'wb') as fp:
             pickle.dump(savedict, fp)
+
+        # save the net
+        saver = tf.train.Saver()
+        saver.save(self.sess, netpath)

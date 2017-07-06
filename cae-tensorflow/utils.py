@@ -167,14 +167,16 @@ def load_sample(samplepath):
 
     return sample_mat, sample_list
 
-def get_predict(cae,img):
+def get_predict(sess,names,img,input_shape=[28,28,1]):
     """
     Predict the output of the input image
 
     input
     =====
-    cae: ConvAE class
-        The trained cae network.
+    sess: tf.Session()
+        The saved session
+    names: dict
+        The dict saved names of the variables.
     img: np.ndarray
         The image matrix, (r,c)
 
@@ -187,9 +189,9 @@ def get_predict(cae,img):
         img = img.astype('float32')
 
     # params
-    depth = cae.X_in.shape[3]
-    rows = cae.X_in.shape[1]
-    cols = cae.X_in.shape[2]
+    depth = input_shape[2]
+    rows = input_shape[0]
+    cols = input_shape[1]
     # Reshape the images
     shapes = img.shape
     if len(shapes) == 2:
@@ -209,32 +211,36 @@ def get_predict(cae,img):
         img_te = img.reshape(shapes[0],rows,cols,depth)
 
     # generate predicted images
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        img_pred = sess.run(cae.l_de, feed_dict={cae.l_in: img_te})
+    # sess.run(tf.global_variables_initializer())
+    img_pred = sess.run(names['l_de'], feed_dict={names['l_in']: img_te, names['droprate']: 0.})
 
     return img_pred
 
-def get_encode(cae, img):
-    """Encode or compress on the sample
+def get_encode(sess, names, img, input_shape=[28,28,1]):
+    """
+    Generate the codes of the input image
 
     input
     =====
+    sess: tf.Session()
+        The saved session
+    names: dict
+        The dict saved names of the variables.
     img: np.ndarray
-        The sample matrix
+        The image matrix, (r,c)
 
     output
     ======
-    img_en: np.ndarray
-        The encoded matrix
+    code: np.ndarray
+        The codes
     """
     if img.dtype != 'float32':
         img = img.astype('float32')
 
     # params
-    depth = cae.X_in.shape[3]
-    rows = cae.X_in.shape[1]
-    cols = cae.X_in.shape[2]
+    depth = input_shape[2]
+    rows = input_shape[0]
+    cols = input_shape[1]
     # Reshape the images
     shapes = img.shape
     if len(shapes) == 2:
@@ -254,51 +260,78 @@ def get_encode(cae, img):
         img_te = img.reshape(shapes[0],rows,cols,depth)
 
     # generate predicted images
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        img_en = sess.run(cae.l_en, feed_dict={cae.l_in: img_te})
+    # sess.run(tf.global_variables_initializer())
+    code = sess.run(names['l_en'], feed_dict={names['l_in']: img_te, names['droprate']: 0.})
 
-    return img_en
+    return code
 
-def get_decode(cae, img):
+
+def get_decode(sess, names, code, input_shape = [28,28,1], code_len=32):
     """Decode to output the recovered image
 
     input
     =====
-    img_en: np.ndarray
-        The encoded matrix
+    sess: tf.Session()
+        The saved session
+    names: dict
+        The dict saved names of the variables.
+    code: np.ndarray
+        The code to be decoded.
 
     output
     ======
     img_de: np.ndarray
         The recovered or predicted image matrix
     """
-    img_de = get_predict(cae=cae, img=img)
+    # Compare code length
+    if code.shape[1] != code_len:
+        print("The length of provided codes should be equal to the network's")
+        return None
+    else:
+        # decoding
+        l_in_shape = [code.shape[0]]
+        l_in_shape.extend(input_shape)
+        p_in = np.zeros(l_in_shape) # pseudo input
+        img_de = sess.run(names['l_de'],
+                          feed_dict={names['l_in']: p_in,
+                                     names['l_en']: code,
+                                     names['droprate']: 0.})
 
     return img_de
 
-def load_net(netpath):
+def load_net(namepath):
     """
     Load the cae network
 
+    reference
+    =========
+    [1] https://www.cnblogs.com/azheng333/archive/2017/06/09/6972619.html
+
     input
     =====
-    netpath: str
+    namepath: str
         Path to save the trained network
 
     output
     ======
-    cae: learn.lasagne.base.NeuralNet
-       The trained network
+    sess: tf.Session()
+        The restored session
+    names: dict
+        The dict saved variables names
     """
     try:
-        fp = open(netpath,'rb')
+        fp = open(namepath,'rb')
     except:
         return None
 
-    cae = pickle.load(fp)
+    names = pickle.load(fp)
 
-    return cae
+    # load the net
+    sess = tf.InteractiveSession()
+    saver = tf.train.Saver()
+    saver.restore(sess, names['netpath'])
+
+    return sess, names
 
 def get_sigma_clip(img,sigma=3,iters=100):
     """
