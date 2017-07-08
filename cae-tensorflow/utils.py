@@ -140,6 +140,141 @@ def gen_sample(folder, ftype='jpg', savepath=None,
 
     return sample_mat
 
+def get_augmentation(img, crop_box=(200, 200),
+                    res_box=(28,28)):
+    """Do image augmentaion by tensorflow.image.
+
+    Note
+    ====
+    At this moment, we only augment the raw image by cropping,
+    flipping and rotation, and resize.
+
+    input
+    =====
+    img: np.ndarray or Tensor
+        The image to be augmentated.
+    crop_box: tuple or list
+        The shape of cropped image.
+    res_box: tuple or list
+        The shape of resized image.
+
+    output
+    ======
+    img_aug: np.ndarray
+    The image after augmentated.
+    """
+    if isinstance(img, np.ndarray):
+        img = img.astype('float32')
+        sess = tf.InteractiveSession()
+        img_aug = tf.constant(img.reshape(img.shape[0], img.shape[1], 1))
+    else:
+        sess = tf.InteractiveSession()
+        img_aug = img
+
+    # crop
+    img_aug = tf.image.resize_image_with_crop_or_pad(img_aug,
+                                                      crop_box[0],
+                                                      crop_box[1])
+    # randomly rotation or flipping
+    if np.random.permutation(2)[0] == 1:
+        img_aug = tf.image.rot90(img_aug)
+
+    # flipping
+    idx = np.random.permutation(3)[0]
+    if idx == 0:
+        img_aug = tf.image.random_flip_up_down(img_aug)
+    elif idx == 1:
+        img_aug = tf.image.random_flip_left_right(img_aug)
+    else:
+        img_aug = tf.image.transpose_image(img_aug)
+
+    # resize
+    img_aug = tf.image.resize_images(img_aug, res_box, method=0)
+
+    return img_aug.eval()
+
+def gen_sample_augmentation(folder, ftype='jpg', savepath=None,
+                            crop_box=(200, 200), res_box=(50, 50),
+                            num_aug=1, clipflag=False, clipparam=None):
+    """
+    Read the sample images and reshape to required structure
+
+    input
+    =====
+    folder: str
+        Name of the folder, i.e., the path
+    ftype: str
+        Type of the images, default as 'jpg'
+    savepath: str
+        Path to save the reshaped sample mat
+        default as None
+    crop_box: tuple
+        Boxsize of the cropping of the center region
+    res_box: tuple
+        Scale of the resized image
+    num_aug: integer
+        Number of augmentated images of each sample
+    clipflag: booling
+        The flag of sigma clipping, default as False
+    clipparam: list
+        Parameters of the sigma clipping, [sigma, iters]
+
+    output
+    ======
+    sample_mat: np.ndarray
+        The sample matrix
+    """
+    # Init
+    if os.path.exists(folder):
+        sample_list = os.listdir(folder)
+    else:
+        return
+
+    sample_mat = np.zeros((len(sample_list)*num_aug,
+                           res_box[0]*res_box[1]))
+
+    def read_image(fpath,ftype):
+        if ftype == 'fits':
+            h = fits.open(fpath)
+            img = h[0].data
+        else:
+            img = imread(name=fpath, flatten=True)
+        return img
+
+    # load images
+    idx = 0
+    for fname in sample_list:
+        fpath = os.path.join(folder,fname)
+        if fpath.split('.')[-1] == ftype:
+            #read image
+            img = read_image(fpath=fpath, ftype=ftype)
+            # augmentation
+            for i in range(num_aug):
+                img_rsz = get_augmentation(img, crop_box=crop_box, res_box=res_box)
+                # push into sample_mat
+                img_vec = img_rsz.reshape((res_box[0]*res_box[1],))
+                sample_mat[idx+i,:] = img_vec
+            idx = idx + num_aug
+        else:
+            continue
+
+    # save
+    if not savepath is None:
+        stype = savepath.split('.')[-1]
+        if stype == 'mat':
+            # save as mat
+            sample_dict = {'data':sample_mat,
+                           'name':sample_list}
+            sio.savemat(savepath,sample_dict)
+        elif stype == 'pkl':
+            fp = open(savepath,'wb')
+            sample_dict = {'data':sample_mat,
+                           'name':sample_list}
+            pickle.dump(sample_dict,fp)
+            fp.close()
+
+    return sample_mat
+
 def load_sample(samplepath):
     """Load the sample matrix
 
