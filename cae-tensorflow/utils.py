@@ -141,7 +141,8 @@ def gen_sample(folder, ftype='jpg', savepath=None,
     return sample_mat
 
 def get_augmentation(img, crop_box=(200, 200),
-                    res_box=(28,28)):
+                    res_box=(28,28),
+                    sess = None):
     """Do image augmentaion by tensorflow.image.
 
     Note
@@ -163,12 +164,13 @@ def get_augmentation(img, crop_box=(200, 200),
     img_aug: np.ndarray
     The image after augmentated.
     """
+    if sess is None:
+        sess = tf.InteractiveSession()
+
     if isinstance(img, np.ndarray):
         img = img.astype('float32')
-        sess = tf.InteractiveSession()
         img_aug = tf.constant(img.reshape(img.shape[0], img.shape[1], 1))
     else:
-        sess = tf.InteractiveSession()
         img_aug = img
 
     # crop
@@ -242,6 +244,7 @@ def gen_sample_augmentation(folder, ftype='jpg', savepath=None,
         return img
 
     # load images
+    sess = tf.InteractiveSession()
     idx = 0
     for fname in sample_list:
         fpath = os.path.join(folder,fname)
@@ -250,7 +253,10 @@ def gen_sample_augmentation(folder, ftype='jpg', savepath=None,
             img = read_image(fpath=fpath, ftype=ftype)
             # augmentation
             for i in range(num_aug):
-                img_rsz = get_augmentation(img, crop_box=crop_box, res_box=res_box)
+                img_rsz = get_augmentation(img=img,
+                                           crop_box=crop_box,
+                                           res_box=res_box,
+                                           sess = sess)
                 # push into sample_mat
                 img_vec = img_rsz.reshape((res_box[0]*res_box[1],))
                 sample_mat[idx+i,:] = img_vec
