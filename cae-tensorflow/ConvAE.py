@@ -129,8 +129,8 @@ class ConvAE():
         '''
 
         # Init
-        pad_en = 'SAME'
-        pad_de = 'SAME'
+        pad_en = 'VALID'
+        pad_de = 'VALID'
         self.encoder = []
         self.shapes_en = []
 
@@ -266,7 +266,7 @@ class ConvAE():
             for batch in self.gen_BatchIterator(batch_size=batch_size):
                 self.sess.run(self.optimizer, feed_dict={self.l_in: batch, self.droprate: droprate})
 
-            print(epoch, self.sess.run(self.cost, feed_dict={self.l_in: batch, self.droprate: droprate}))
+            print(epoch+1, self.sess.run(self.cost, feed_dict={self.l_in: batch, self.droprate: droprate})/batch_size)
 
     def cae_test(self, img):
         """Test the trained network,
