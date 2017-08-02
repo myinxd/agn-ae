@@ -99,17 +99,16 @@ class ConvGAN():
                 excerpt = slice(start_idx, start_idx + batch_size)
             yield self.X_in[excerpt]
 
-    def gen_generator(self):
-        """Construct the generator network, including ConvLayers and FC layers."""
+    def weight_variable(shape):
+        initial = tf.truncated_normal(shape, stddev=0.1)
+        return tf.Variable(initial)
 
-        # Useful methods
-        def weight_variable(shape):
-            initial = tf.truncated_normal(shape, stddev=0.1)
-            return tf.Variable(initial)
+    def bias_variable(shape):
+        initial = tf.constant(0.1, shape=shape)
+        return tf.Variable(initial)
 
-        def bias_variable(shape):
-            initial = tf.constant(0.1, shape=shape)
-            return tf.Variable(initial)
+    def gen_discriminator(self):
+        """Construct the discriminator network, including ConvLayers and FC layers."""
 
         # Input layer
         in_depth = self.X_in.shape[3]
@@ -119,7 +118,7 @@ class ConvGAN():
                                 [None,in_row,in_col,in_depth],
                                 name='l_in')
 
-        # Encoder layers
+        # Conv layers
         current_input = self.l_in
         for i, depth_output in enumerate(self.kernel_num):
             depth_input = current_input.get_shape().as_list()[3]
@@ -132,74 +131,74 @@ class ConvGAN():
             b = bias_variable(shape=[depth_output])
             self.encoder.append(W) # share
             output = tf.add(tf.nn.conv2d(current_input,
-                                            W, strides=[1,2,2,1],
-                                            padding=pad_en), b)
+                                            W, strides=[1,self.stride,self.stride,1],
+                                            padding=self.pad), b)
             output = tf.nn.relu(output)
             current_input = output
 
-        if self.encode_nodes is not None:
-            # Dense layer
-            shape_conv = current_input.get_shape().as_list()
-            depth_dense = shape_conv[1] * shape_conv[2] * shape_conv[3]
-            l_en_dense = tf.reshape(current_input, [-1, depth_dense])
-            # dropout layer
-            # keep_prob = tf.placeholder(tf.float32)
-            # fully connected
-            depth_input = depth_dense
-            current_input = l_en_dense
-            self.en_fc = [] # save and share weights of the fc layers
-            self.fc_depth=[] # depth_input of the encoder
-            for i, depth_output in enumerate(self.fc_nodes):
-                self.fc_depth.append(depth_input)
-                W = weight_variable(shape=[depth_input, depth_output])
-                b = bias_variable(shape=[depth_output])
-                self.en_fc.append(W) # share weight
-                output = tf.nn.relu(tf.matmul(current_input, W) + b)
-                # dropout
-                output = tf.nn.dropout(output, self.droprate)
-                current_input = output
-                depth_input = depth_output
-
-            # encode layer
-            W_en = weight_variable(shape=[depth_input, self.encode_nodes])
-            b_en = bias_variable(shape=[self.encode_nodes])
-            output = tf.nn.relu(tf.matmul(current_input, W_en) + b_en)
+        # Dense layer
+        shape_conv = current_input.get_shape().as_list()
+        depth_dense = shape_conv[1] * shape_conv[2] * shape_conv[3]
+        l_en_dense = tf.reshape(current_input, [-1, depth_dense])
+        # dropout layer
+        # keep_prob = tf.placeholder(tf.float32)
+        # fully connected
+        depth_input = depth_dense
+        current_input = l_en_dense
+        self.en_fc = [] # save and share weights of the fc layers
+        self.fc_depth=[] # depth_input of the encoder
+        for i, depth_output in enumerate(self.fc_nodes):
+            self.fc_depth.append(depth_input)
+            W = weight_variable(shape=[depth_input, depth_output])
+            b = bias_variable(shape=[depth_output])
+            self.en_fc.append(W) # share weight
+            output = tf.nn.relu(tf.matmul(current_input, W) + b)
+            # dropout
+            output = tf.nn.dropout(output, self.droprate)
             current_input = output
-            self.l_en = current_input
+            depth_input = depth_output
 
-            # decoder layers
-            W_de = tf.transpose(W_en)
-            if len(self.fc_nodes):
-                depth_output = self.fc_nodes[-1]
-            else:
-                depth_output = depth_dense
-            b_de = bias_variable(shape=[depth_output])
-            output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
-            current_input = output
+        # encode layer
+        W_en = weight_variable(shape=[depth_input, 1])
+        b_en = bias_variable(shape=[1])
+        output = tf.nn.relu(tf.matmul(current_input, W_en) + b_en)
+        current_input = output
+        self.l_en = current_input
 
-            # fc layers
-            for i in range(len(self.fc_nodes)-1, -1, -1):
-                depth_output = self.fc_depth[i]
-                W = tf.transpose(self.en_fc[i])
-                b = bias_variable(shape=[depth_output])
-                output = tf.nn.relu(tf.matmul(current_input, W) + b)
-                # dropout
-                output = tf.nn.dropout(output, self.droprate)
-                current_input = output
+    def gen_generator(self):
+        """Construct the generator network."""
 
-            # Dense layer
-            # W_de = weight_variable(shape=[depth_input, depth_dense])
-            # b_de = bias_variable(shape=[depth_dense])
-            # output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
-            # current_input = tf.nn.dropout(output, self.droprate)
-            # reshape
-            current_input = tf.reshape(current_input,
-                                    [-1,
-                                        shape_conv[1],
-                                        shape_conv[2],
-                                        shape_conv[3]])
+        current_input = self.Zin
+        if len(self.fc_nodes):
+            depth_output = self.fc_nodes[-1]
         else:
-            self.l_en = current_input
+            depth_output = depth_dense
+        w_de = weight_variable(shape=[self.encode_nodes, self.depth_output])
+        b_de = bias_variable(shape=[depth_output])
+        output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
+        current_input = output
+
+        # fc layers
+        for i in range(len(self.fc_nodes)-1, -1, -1):
+            depth_output = self.fc_depth[i]
+            W = tf.transpose(self.en_fc[i])
+            b = bias_variable(shape=[depth_output])
+            output = tf.nn.relu(tf.matmul(current_input, W) + b)
+            # dropout
+            output = tf.nn.dropout(output, self.droprate)
+            current_input = output
+
+        # Dense layer
+        # W_de = weight_variable(shape=[depth_input, depth_dense])
+        # b_de = bias_variable(shape=[depth_dense])
+        # output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
+        # current_input = tf.nn.dropout(output, self.droprate)
+        # reshape
+        current_input = tf.reshape(current_input,
+                                [-1,
+                                    shape_conv[1],
+                                    shape_conv[2],
+                                    shape_conv[3]])
 
         self.decoder = self.encoder.copy()
         self.decoder.reverse()
