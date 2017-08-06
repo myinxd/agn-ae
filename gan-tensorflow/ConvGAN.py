@@ -20,6 +20,8 @@ Methods
 
 import tensorflow as tf
 import numpy as np
+import time
+import math
 
 class ConvGAN():
     """
@@ -53,24 +55,47 @@ class ConvGAN():
 
     """
 
-    def __init__(self, X_in, kernel_size=[3,3,3],
+    def __init__(self, img_shape=(28,28,1), kernel_size=[3,3,3],
                  kernel_num=[10,10,10],
                  fc_nodes=[64], encode_nodes=10,
                  pad = 'VALID',
-                 stride = 2
+                 stride = 2,
+                 batch_size = 100,
                  ):
         """
         The initializer
         """
-        self.X_in = X_in
+        self.img_shape = img_shape
         self.kernel_size = kernel_size
         self.kernel_num = kernel_num
         self.fc_nodes = fc_nodes
         self.encode_nodes = encode_nodes
-        self.droprate = tf.placeholder(tf.float32, name="droprate")
+        self.pad = pad
+        self.stride = stride
+        self.batch_size = batch_size
+        self.gen_Tensors()
+        # self.gen_discriminator()
+        # self.gen_generator()
 
 
-    def gen_BatchIterator(self, batch_size=100, shuffle=True):
+    def gen_Tensors(self):
+        """Generate the placeholded tensors"""
+        self.x_smp = tf.placeholder(tf.float32, [self.batch_size,
+                                                 self.img_shape[0],
+                                                 self.img_shape[1],
+                                                 self.img_shape[2]], name="x_smp")
+        self.x_gen = tf.placeholder(tf.float32, [self.batch_size,
+                                                 self.img_shape[0],
+                                                 self.img_shape[1],
+                                                 self.img_shape[2]], name="x_gen")
+        self.y_smp = tf.placeholder(tf.float32, [self.batch_size,], name="y_smp")
+        self.y_gen = tf.placeholder(tf.float32, [self.batch_size,], name="y_gen")
+        self.z_en = tf.placeholder(tf.float32,[self.batch_size, self.encode_nodes], name="z_en")
+        self.keep_rate = tf.placeholder(tf.float32, name="keep_rate")
+        # self.batchsize = tf.placeholder(tf.int31, name="batchsize")
+
+
+    def gen_BatchIterator(self, x_in, shuffle=True):
         """
         Return the next 'batch_size' examples
         from the X_in dataset
@@ -80,8 +105,8 @@ class ConvGAN():
         [1] tensorflow.examples.tutorial.mnist.input_data.next_batch
         Input
         =====
-        batch_size: int
-            Size of a single batch.
+        x_in: np.ndarray
+            data to be batched, [numsamples, row, col, channel]
         shuffle: bool
             Whether shuffle the indices.
 
@@ -90,46 +115,170 @@ class ConvGAN():
         Yield a batch generator
         """
         if shuffle:
-            indices = np.arange(len(self.X_in))
+            indices = np.arange(len(x_in))
             np.random.shuffle(indices)
-        for start_idx in range(0, len(self.X_in) - batch_size + 1, batch_size):
+        for start_idx in range(0, len(x_in) - self.batch_size + 1, self.batch_size):
             if shuffle:
-                excerpt = indices[start_idx: start_idx + batch_size]
+                excerpt = indices[start_idx: start_idx + self.batch_size]
             else:
-                excerpt = slice(start_idx, start_idx + batch_size)
-            yield self.X_in[excerpt]
+                excerpt = slice(start_idx, start_idx + self.batch_size)
+            yield x_in[excerpt]
 
-    def weight_variable(shape):
-        initial = tf.truncated_normal(shape, stddev=0.1)
+    def weight_variable(self, shape):
+        initial = tf.truncated_normal(shape, stddev=0.01)
         return tf.Variable(initial)
 
-    def bias_variable(shape):
+    def bias_variable(self, shape):
         initial = tf.constant(0.1, shape=shape)
         return tf.Variable(initial)
+
+    def gen_layers(self):
+        """
+        Generate layer parameters according to provided
+        kernel and full connected parameters.
+
+        Layers
+        ======
+        InputLayer: [NumSamples, rows, cols, ch_in, ch_out]
+        ConvLayer: [NumSamples, rows, cols, ch_in, ch_out]
+        Denselayer: [NumSamples, None, Nodes]
+        FCLayer: [NumSamples, Nodes_in, Nodes_out]
+        """
+        # Init
+        self.layers = {"InputLayer": [self.batch_size,
+                                      self.img_shape[0],
+                                      self.img_shape[1],
+                                      None,
+                                      self.img_shape[2]],
+                       "ConvLayer": [],
+                       "DenseLayer": [],
+                       "FCLayer": [],
+                       "OutputLayer": []}
+
+        shape_input = self.layers['InputLayer']
+        # ConvLayers
+        if self.pad == 'SAME':
+            for i, depth_output in enumerate(self.kernel_num):
+                new_row = math.ceil(shape_input[1]/self.stride)
+                new_col = math.ceil(shape_input[2]/self.stride)
+                shape_input = [shape_input[0],
+                               new_row,
+                               new_col,
+                               shape_input[4],
+                               depth_output]
+                self.layers['ConvLayer'].append(shape_input)
+        elif self.pad == 'VALID':
+            for i, depth_output in enumerate(self.kernel_num):
+                new_row = math.ceil((shape_input[1]-self.kernel_size[i]+1)/self.stride)
+                new_col = math.ceil((shape_input[2]-self.kernel_size[i]+1)/self.stride)
+                shape_input = [shape_input[0],
+                               new_row,
+                               new_col,
+                               shape_input[4],
+                               depth_output]
+                self.layers['ConvLayer'].append(shape_input)
+        else:
+            print("Padding mode should be 'SAME' or 'VALID'")
+            return None
+
+        # DenseLayer
+        shape_dense = self.layers['ConvLayer'][-1]
+        self.layers['DenseLayer'] = [shape_dense[0],
+                                     None,
+                                     shape_dense[1]*shape_dense[2]*shape_dense[4]]
+
+        # Fully connected layers
+        shape_input = self.layers['DenseLayer']
+        for i, depth_output in enumerate(self.fc_nodes):
+            shape_input = [shape_input[0],
+                           shape_input[2],
+                           depth_output]
+            self.layers['FCLayer'].append(shape_input)
+
+        # OuputLayer
+        if len(self.fc_nodes):
+            self.layers['OutputLayer'] = [-1, self.fc_nodes[-1], -1]
+        else:
+            self.layers['OutputLayer'] = [-1, self.layers['DenseLayer'][-1],-1]
+
+    def gen_generator(self):
+        """Construct the generator network."""
+
+        self.param_gen = []
+
+        current_input = self.z_en
+        depth_input = self.encode_nodes
+        # Ouput layer to FC or dense
+        depth_output = self.layers['OutputLayer'][1]
+        W_out = self.weight_variable(shape=[depth_input, depth_output])
+        b_out = self.bias_variable(shape=[depth_output])
+        self.param_gen.append(W_out)
+        self.param_gen.append(b_out)
+        output = tf.nn.relu(tf.matmul(current_input, W_out) + b_out)
+        current_input = output
+
+        # Dense or Full
+        # FC layers
+        for i in range(len(self.layers['FCLayer'])-1, -1, -1):
+            layer_fc = self.layers['FCLayer'][i]
+            W = self.weight_variable(shape=[layer_fc[2], layer_fc[1]])
+            b = self.bias_variable(shape=[layer_fc[1]])
+            self.param_gen.append(W)
+            self.param_gen.append(b)
+            output = tf.nn.relu(tf.matmul(current_input, W) + b)
+            current_input = output
+
+        # reshape
+        shape_conv = self.layers['ConvLayer'][-1]
+        current_input = tf.reshape(current_input,
+                                    [-1,
+                                    shape_conv[1],
+                                    shape_conv[2],
+                                    shape_conv[4]])
+
+        print(current_input.get_shape())
+        # ConvLayers
+        layer_convs= self.layers['ConvLayer']
+        layer_convs.insert(0, self.layers['InputLayer'])
+        print(layer_convs)
+
+        for i in range(len(layer_convs)-2, -1, -1):
+            layer_in = layer_convs[i+1]
+            layer_out = layer_convs[i]
+            W = self.weight_variable(shape=[self.kernel_size[i],
+                                            self.kernel_size[i],
+                                            layer_in[3],
+                                            layer_in[4]])
+            b = self.bias_variable(shape=[layer_in[3]])
+            self.param_gen.append(W)
+            self.param_gen.append(b)
+            output = tf.add(tf.nn.conv2d_transpose(
+                current_input, W,
+                tf.stack([layer_out[0],layer_out[1],layer_out[2],layer_out[4]]),
+                strides = [1, self.stride, self.stride, 1],
+                padding = self.pad,
+            ), b)
+            output = tf.nn.relu(output)
+            current_input = output
+
+        # Generator output
+        self.x_gen = current_input
+
 
     def gen_discriminator(self):
         """Construct the discriminator network, including ConvLayers and FC layers."""
 
-        # Input layer
-        in_depth = self.X_in.shape[3]
-        in_row = self.X_in.shape[1]
-        in_col = self.X_in.shape[2]
-        self.l_in = tf.placeholder(tf.float32,
-                                [None,in_row,in_col,in_depth],
-                                name='l_in')
+        self.param_dis = []
 
         # Conv layers
-        current_input = self.l_in
+        current_input = tf.concat([self.x_smp, self.x_gen], 0)
         for i, depth_output in enumerate(self.kernel_num):
             depth_input = current_input.get_shape().as_list()[3]
-            self.shapes_en.append(current_input.get_shape().as_list())
-            W = weight_variable(shape=[self.kernel_size[i],
-                                       self.kernel_size[i],
-                                       depth_input,
-                                       depth_output,
-                                       ])
-            b = bias_variable(shape=[depth_output])
-            self.encoder.append(W) # share
+            W = self.weight_variable(shape=[self.kernel_size[i],self.kernel_size[i], depth_input, depth_output])
+            b = self.bias_variable(shape=[depth_output])
+            self.param_dis.append(W)
+            self.param_dis.append(b)
+            # self.encoder.append(W) # share
             output = tf.add(tf.nn.conv2d(current_input,
                                             W, strides=[1,self.stride,self.stride,1],
                                             padding=self.pad), b)
@@ -139,98 +288,46 @@ class ConvGAN():
         # Dense layer
         shape_conv = current_input.get_shape().as_list()
         depth_dense = shape_conv[1] * shape_conv[2] * shape_conv[3]
-        l_en_dense = tf.reshape(current_input, [-1, depth_dense])
-        # dropout layer
-        # keep_prob = tf.placeholder(tf.float32)
+        current_input = tf.reshape(current_input, [-1, depth_dense])
+
         # fully connected
         depth_input = depth_dense
-        current_input = l_en_dense
-        self.en_fc = [] # save and share weights of the fc layers
-        self.fc_depth=[] # depth_input of the encoder
         for i, depth_output in enumerate(self.fc_nodes):
-            self.fc_depth.append(depth_input)
-            W = weight_variable(shape=[depth_input, depth_output])
-            b = bias_variable(shape=[depth_output])
-            self.en_fc.append(W) # share weight
+            W = self.weight_variable(shape=[depth_input, depth_output])
+            b = self.bias_variable(shape=[depth_output])
+            self.param_dis.append(W)
+            self.param_dis.append(b)
             output = tf.nn.relu(tf.matmul(current_input, W) + b)
             # dropout
-            output = tf.nn.dropout(output, self.droprate)
+            output = tf.nn.dropout(output, self.keep_rate)
             current_input = output
             depth_input = depth_output
 
-        # encode layer
-        W_en = weight_variable(shape=[depth_input, 1])
-        b_en = bias_variable(shape=[1])
+        # compare layer
+        W_en = self.weight_variable(shape=[depth_input, 1])
+        b_en = self.bias_variable(shape=[1])
+        self.param_dis.append(W_en)
+        self.param_dis.append(b_en)
         output = tf.nn.relu(tf.matmul(current_input, W_en) + b_en)
-        current_input = output
-        self.l_en = current_input
 
-    def gen_generator(self):
-        """Construct the generator network."""
+        self.y_smp = tf.slice(output, [0, 0], [self.batch_size, -1])
+        self.y_gen = tf.slice(output, [self.batch_size, 0], [-1, -1])
 
-        current_input = self.Zin
-        if len(self.fc_nodes):
-            depth_output = self.fc_nodes[-1]
-        else:
-            depth_output = depth_dense
-        w_de = weight_variable(shape=[self.encode_nodes, self.depth_output])
-        b_de = bias_variable(shape=[depth_output])
-        output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
-        current_input = output
 
-        # fc layers
-        for i in range(len(self.fc_nodes)-1, -1, -1):
-            depth_output = self.fc_depth[i]
-            W = tf.transpose(self.en_fc[i])
-            b = bias_variable(shape=[depth_output])
-            output = tf.nn.relu(tf.matmul(current_input, W) + b)
-            # dropout
-            output = tf.nn.dropout(output, self.droprate)
-            current_input = output
-
-        # Dense layer
-        # W_de = weight_variable(shape=[depth_input, depth_dense])
-        # b_de = bias_variable(shape=[depth_dense])
-        # output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
-        # current_input = tf.nn.dropout(output, self.droprate)
-        # reshape
-        current_input = tf.reshape(current_input,
-                                [-1,
-                                    shape_conv[1],
-                                    shape_conv[2],
-                                    shape_conv[3]])
-
-        self.decoder = self.encoder.copy()
-        self.decoder.reverse()
-        self.shapes_de = self.shapes_en.copy()
-        self.shapes_de.reverse()
-
-        for i, shape in enumerate(self.shapes_de):
-            W = self.decoder[i]
-            b = bias_variable(shape=(W.get_shape().as_list()[2],))
-            output = tf.add(tf.nn.conv2d_transpose(
-                current_input, W,
-                tf.stack([tf.shape(self.l_in)[0], shape[1], shape[2], shape[3]]),
-                strides = [1,2,2,1], padding=pad_de
-            ), b)
-            output = tf.nn.relu(output)
-            current_input = output
-
-        # Decoder output
-        self.l_de = current_input
-
-    def gen_cost(self):
-        """Generate the cost, usually be the mean square error."""
-        # cost function
-        self.cost = tf.reduce_sum(tf.square(self.l_de-self.l_in))
+    def gen_loss(self):
+        """Generate the loss functions."""
+        # loss of generator
+        self.loss_dis = - (tf.log(self.y_smp) + tf.log(1-self.y_gen))
+        self.loss_gen = - (tf.log(self.y_gen))
 
 
     def gen_optimizer(self, learning_rate=0.01):
         """Generate the optimizer to minimize the cose"""
-        self.gen_cost()
-        self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
+        self.gen_loss()
+        self.optimizer_dis = tf.train.AdamOptimizer(learning_rate).minimize(self.loss_dis, var_list=self.param_dis)
+        self.optimizer_gen = tf.train.AdamOptimizer(learning_rate).minimize(self.loss_gen, var_list=self.param_gen)
 
-    def cae_train(self, num_epochs=20, learning_rate=0.01, batch_size=100, droprate=0.5):
+    def gan_train(self, x_in, num_epochs=20, learning_rate=0.01, keep_rate=0.5):
         """Train the net"""
         self.gen_optimizer(learning_rate = learning_rate)
         init_op = tf.global_variables_initializer()
@@ -239,12 +336,28 @@ class ConvGAN():
 
         # generate optimizer
         for epoch in range(num_epochs):
-            for batch in self.gen_BatchIterator(batch_size=batch_size):
-                self.sess.run(self.optimizer, feed_dict={self.l_in: batch, self.droprate: droprate})
+            for batch in self.gen_BatchIterator(x_in = x_in):
+                z_sample = np.random.normal(0, 1, size=(self.batch_size, self.encode_nodes)).astype(np.float32)
+                # train generator
+                # x_generator = self.sess.run(self.x_generator, feed_dict={self.z_en: z_sample, self.keep_rate: keep_rate})
+                self.sess.run(self.optimizer_gen,
+                              feed_dict={self.x_smp: batch,
+                                         self.z_en: z_sample,
+                                         # self.x_gen: x_generator,
+                                         self.keep_rate: keep_rate})
 
-            print(epoch+1, self.sess.run(self.cost, feed_dict={self.l_in: batch, self.droprate: droprate})/batch_size)
+                # train discriminator
+                self.sess.run(self.optimizer_dis,
+                              feed_dict={self.x_smp: batch,
+                                         self.z_en: z_sample,
+                                         # self.x_gen: x_generator,
+                                         self.keep_rate: keep_rate})
 
-    def cae_test(self, img):
+            timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+            print("[%s] Epoch: %d / %d" % (timestamp, epoch+1, num_epochs))
+            # print(epoch+1, self.sess.run(self.cost, feed_dict={self.l_in: batch, self.droprate: droprate})/batch_size)
+
+    def gan_test(self, img):
         """Test the trained network,
 
         Input
@@ -333,7 +446,7 @@ class ConvGAN():
         return code
 
 
-    def cae_decode(self, code):
+    def gan_decode(self, code):
         """Generate agn images with provided codes.
 
         Input
@@ -367,17 +480,19 @@ class ConvGAN():
 
         return img_de
 
-    def cae_save(self, namepath, netpath):
+    def gan_save(self, namepath, netpath):
         """Save the net"""
         import pickle
         import sys
         sys.setrecursionlimit(1000000)
 
         # save the names
-        savedict = {'l_in': self.l_in.name,
-                   'l_en': self.l_en.name,
-                   'l_de': self.l_de.name,
-                    'droprate': self.droprate.name,
+        savedict = {'x_smp': self.x_smp.name,
+                    'x_gen': self.x_gen.name,
+                    'y_smp': self.y_smp.name,
+                    'y_gen': self.y_gen.name,
+                    'keep_rate': self.keep_rate.name,
+                    'z_en':self.z_en.name,
                     'netpath': netpath}
         with open(namepath, 'wb') as fp:
             pickle.dump(savedict, fp)
