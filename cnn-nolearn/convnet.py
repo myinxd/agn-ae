@@ -13,8 +13,8 @@ Reference
 """
 
 import lasagne
-# from lasagne.layers import get_output
-from lasagne.layers import DropoutLayer, get_output
+from lasagne.layers import get_output
+from lasagne.layers import DropoutLayer
 from lasagne.layers import InputLayer, DenseLayer
 from lasagne.layers import Conv2DLayer, MaxPool2DLayer
 from nolearn.lasagne import NeuralNet, BatchIterator
@@ -71,8 +71,8 @@ class ConvNet():
         self.pool_flag = pool_flag
         self.pool_size = 2
         self.fc_nodes = fc_nodes
-        self.droprate = 0.5
-        self.dropflag = True
+        self.droprate = droprate
+        self.dropflag = dropflag
 
     def gen_BatchIterator(self, batch_size=100, shuffle=True):
         """Generate the batch iterator"""
