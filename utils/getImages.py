@@ -93,10 +93,9 @@ def main():
     # transform
     optdict = {
         "cmap": "a",
-        "smooth": "radius 4",
-        "zoom": "to 3",
-        "-width": "400",
-        "height": "400",
+        "zoom": "to 2",
+        "-width": "250",
+        "height": "250",
     }
     # ParamDS9
     opt = ParamDS9(optdict=optdict)

@@ -124,11 +124,13 @@ def main():
     parser.add_argument("pathmatch",help="Path of samples to be cross matched.")
     parser.add_argument("pathall",help="path of the samplelist.")
     parser.add_argument("csvpath",help="path to save the matched result.")
+    parser.add_argument("bias",help="Minimum bias between to matched objects."
     args = parser.parse_args()
 
     pathmatch = args.pathmatch
     pathall = args.pathall
     csvpath = args.csvpath
+    bias = args.bias
 
     # sample_frame
     sample_frame = {"labeled": [],
@@ -157,16 +159,14 @@ def main():
         s_ra = "%sh%sm%ss" % (ra[i][2:4], ra[i][4:6], ra[i][6:11])
         s_dec= "%sd%sm%ss" % (ra[i][11:14],ra[i][14:16],ra[i][16:20])
         print("[%s] Matching sample locates at %s\t%s" % (t,s_ra,s_dec))
-        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=5)
+        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=bias)
         sample_frame["labeled"].append(match_str[0])
         sample_frame["unlabeled"].append(match_str[1])
         sample_frame["RA"].append(match_str[2])
         sample_frame["DEC"].append(match_str[3])
         sample_frame["idx"].append(match_str[4])
-    """
-
+    
     # FRIICAT
-    """
     fp = open(pathmatch, 'r')
     samples = fp.readlines()
     for i in range(len(samples)):
@@ -177,13 +177,13 @@ def main():
         s_ra = "%sh%sm%ss" % (ra[1:3], ra[3:5], ra[5:10])
         s_dec= "%sd%sm%ss" % (ra[10:13],ra[13:15],ra[15:19])
         print("[%s] Matching sample locates at %s\t%s" % (t,s_ra,s_dec))
-        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=5)
+        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=bias)
         sample_frame["labeled"].append(match_str[0])
         sample_frame["unlabeled"].append(match_str[1])
         sample_frame["RA"].append(match_str[2])
         sample_frame["DEC"].append(match_str[3])
         sample_frame["idx"].append(match_str[4])
-    """
+    
     # X-shaped
     f = read_excel(pathmatch)
     samples = f.get_values()
@@ -199,19 +199,35 @@ def main():
         s_ra = "%sh%sm%ss" % (RA[0], RA[1], RA[2])
         s_dec= "%sd%sm%ss" % (DEC[0], DEC[1], DEC[2])
         print("[%s] Matching sample locates at %s\t%s" % (t,s_ra,s_dec))
-        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=5)
+        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=bias)
+        sample_frame["labeled"].append(match_str[0])
+        sample_frame["unlabeled"].append(match_str[1])
+        sample_frame["RA"].append(match_str[2])
+        sample_frame["DEC"].append(match_str[3])
+        sample_frame["idx"].append(match_str[4])
+    """
+    
+    # Proctor 
+    fp = open(pathmatch, 'r')
+    samples = fp.readlines()
+    for i in range(len(samples)):
+        t = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
+        s = samples[i].split(" ")
+        ra = s[4:7]
+        dec = s[8:11]
+        # get parameters
+        s_ra = "%sh%sm%ss" % (ra[0], ra[1], ra[2])
+        s_dec= "%sd%sm%ss" % (dec[0],dec[1], dec[2])
+        print("[%s] Matching sample locates at %s\t%s" % (t,s_ra,s_dec))
+        match_str = findmatch(s_match=split2coord(s_ra,s_dec), s_all=s_all, bias=bias)
         sample_frame["labeled"].append(match_str[0])
         sample_frame["unlabeled"].append(match_str[1])
         sample_frame["RA"].append(match_str[2])
         sample_frame["DEC"].append(match_str[3])
         sample_frame["idx"].append(match_str[4])
 
-
-
     # save
     save2csv(sample_frame, csvpath)
 
 if __name__ == "__main__":
     main()
-
-

@@ -93,14 +93,15 @@ class DataFetcher():
             The file path to save fetched data.
         """
         # if self.data_requests is None:
-        self.get_response()
-        # raw response content
-        filesfx = savepath.split('.')[-1]
-        if filesfx != 'fits':
-            print("Warning: file type %s may not be opened correctly." % filesfx)
-        fd = open(savepath, 'wb')
-        for chunk in self.data_requests.iter_content(chunk_size=128):
-            fd.write(chunk)
+        if not os.path.exists(savepath):
+            self.get_response()
+            # raw response content
+            filesfx = savepath.split('.')[-1]
+            if filesfx != 'fits':
+                print("Warning: file type %s may not be opened correctly." % filesfx)
+            with open(savepath, 'wb') as fd:
+                for chunk in self.data_requests.iter_content(chunk_size=128):
+                    fd.write(chunk)
 
 def bin2csv(binpath, savepath):
     """Readjust the binary file to readable file."""
@@ -119,6 +120,57 @@ def bin2csv(binpath, savepath):
 
     fb.close()
     fs.close()
+
+def batch_download(dataFetcher, listpath, batch, savefolder):
+    """Batch download the samples
+
+    Inputs
+    ======
+    dataFetecher: class DataFetcher
+        The data fetcher that hosts url and params
+    listpath: str
+        The path of the data list
+    batch: tuple
+        The region of indices w.r.t. samples to be fetched.
+    savefolder: str
+        Folder to save the fetched sample files
+    """
+    import time
+    timestamp = time.strftime('%Y-%m-%d',time.localtime(time.time()))
+    print('[%s]: Downloading samples from %s' % (timestamp, dataFetcher.get_url()))
+
+    # open listpath
+    f = open(listpath,'rb')
+    lines = f.readlines() # The first line is not required.
+    # regularize the batch
+    if batch[0] <=0:
+        batch[0] = 1
+    if batch[1] > len(lines):
+        batch[1] = len(lines)
+    # log file optional
+    fl = open('log.txt', 'a')
+    # Iteration body
+    for i in range(batch[0], batch[1]+1):
+        # timestamp
+        t = time.strftime('%Y-%m-%d',time.localtime(time.time()))
+        # get params
+        sample_line = str(lines[i], 'utf-8').split(' ')
+        update_ra = ' '.join(sample_line[0:6])
+        update_param = {'RA': update_ra}
+        # update param
+        dataFetcher.get_params_update(params_update=update_param)
+        # download file
+        fname = 'J' + ''.join(sample_line[0:6]) + '.fits'
+        savepath = os.path.join(savefolder,fname)
+        try:
+            dataFetcher.save_data(savepath)
+        except:
+            fl.write("%d: %s" % (i, fname))
+            continue
+        # print log
+        print('[%s]: Fetching %s' % (t, fname))
+    f.close()
+    fl.close()
 
 def batch_download_csv(dataFetcher, listpath, batch, savefolder):
     """Batch download the samples
@@ -151,7 +203,7 @@ def batch_download_csv(dataFetcher, listpath, batch, savefolder):
     # log file optional
     fl = open('log.txt', 'a')
     # Iteration body
-    for i in range(batch[0], batch[1]):
+    for i in range(batch[0], batch[1]+1):
         # timestamp
         t = time.strftime('%Y-%m-%d',time.localtime(time.time()))
         # get params
@@ -170,34 +222,209 @@ def batch_download_csv(dataFetcher, listpath, batch, savefolder):
         # update param
         dataFetcher.get_params_update(params_update=update_param)
         # download file
-        # save name
-        ra_h = "%02d" % (int(ra_rms[0]))
-        ra_m = "%02d" % (int(ra_rms[1]))
-        ra_s_i = np.fix(np.round(ra_rms[2]*100)/100)
-        ra_s_f = np.round(ra_rms[2]*100)/100 - ra_s_i
-        ra_s = "%02d.%02d" % (int(ra_s_i),int(ra_s_f*100))
-        if dec_dms[0] > 0:
-            de_d = "+%02d" % (int(dec_dms[0]))
-        else:
-            de_d = "-%02d" % (abs(int(dec_dms[0])))
-        de_m = "%02d" % (abs(int(dec_dms[1])))
-        de_s_i = np.fix(np.abs(np.round(dec_dms[2]*10)/10))
-        de_s_f = np.abs(np.round(dec_dms[2]*10)/10) - de_s_i
-        de_s = "%02d.%01d" % (int(de_s_i),np.round(de_s_f*10))
         fname = 'J' + ''.join([ra_h,ra_m,ra_s,de_d,de_m,de_s]) + '.fits'
         savepath = os.path.join(savefolder,fname)
+        try:
+            dataFetcher.save_data(savepath)
+        except:
+            fl.write("%d: %s" % (i, fname))
+            continue
         # print log
         print('[%s]: Fetching %s' % (t, fname))
-        if os.path.exists(savepath):
-            continue
-        else:
-            try:
-                dataFetcher.save_data(savepath)
-            except:
-                fl.write("%d: %s" % (i, fname))
-                continue
     fl.close()
 
+def batch_download_excel(dataFetcher, listpath, batch, savefolder):
+    """Batch download the samples
+
+    Inputs
+    ======
+    dataFetecher: class DataFetcher
+        The data fetcher that hosts url and params
+    listpath: str
+        The path of the data list
+    batch: tuple
+        The region of indices w.r.t. samples to be fetched.
+    savefolder: str
+        Folder to save the fetched sample files
+    """
+    from pandas import read_excel
+    import time
+    timestamp = time.strftime('%Y-%m-%d: %H:%M:%S',time.localtime(time.time()))
+    print('[%s]: Downloading samples from %s' % (timestamp, dataFetcher.get_url()))
+
+    # load csv
+    f = read_excel(listpath)
+    samples = f.get_values()
+    ra = samples[:,1] # RA
+    name = samples[:,1] # Sample name
+    # regularize the batch
+    if batch[1] > len(samples):
+        batch[1] = len(samples)
+    # log file optional
+    fl = open('log.txt', 'a')
+    # Iteration body
+    for i in range(batch[0], batch[1]):
+        # timestamp
+        t = time.strftime('%Y-%m-%d: %H:%M:%S',time.localtime(time.time()))
+        # get params
+        RA_h = ra[i][2:4]
+        RA_m = ra[i][4:6]
+        RA_s = ra[i][6:11]
+        DEC_d = ra[i][11:14]
+        DEC_a = ra[i][14:16]
+        DEC_s = ra[i][16:20]
+        if DEC_d[0] == '−':
+            DEC_d = '-' + DEC_d[1:]
+        update_param = {'RA': " ".join([RA_h, RA_m, RA_s, DEC_d, DEC_a, DEC_s])}
+        print(update_param['RA'])
+        # update param
+        dataFetcher.get_params_update(params_update=update_param)
+        # download file
+        fname_temp = name[i].split(" ")
+        fname = "_".join(fname_temp[1:-2]) + '.fits'
+        savepath = os.path.join(savefolder,fname)
+        print("[%s] processing on sample fname %s" % (t, fname))
+        try:
+            dataFetcher.save_data(savepath)
+        except:
+            fl.write("%d: %s" % (i, fname))
+            continue
+        # print log
+        # print('[%s]: Fetching %s' % (t, fname))
+    fl.close()
+
+def batch_download_txt(dataFetcher, listpath, batch, savefolder):
+    """Batch download the samples
+
+    Inputs
+    ======
+    dataFetecher: class DataFetcher
+        The data fetcher that hosts url and params
+    listpath: str
+        The path of the data list
+    batch: tuple
+        The region of indices w.r.t. samples to be fetched.
+    savefolder: str
+        Folder to save the fetched sample files
+    """
+    import time
+    timestamp = time.strftime('%Y-%m-%d: %H:%M:%S',time.localtime(time.time()))
+    print('[%s]: Downloading samples from %s' % (timestamp, dataFetcher.get_url()))
+
+    # load csv
+    with open(listpath, 'r') as fp:
+        samples = fp.readlines()
+
+    # regularize the batch
+    if batch[1] > len(samples):
+        batch[1] = len(samples)
+    # log file optional
+    fl = open('log.txt', 'a')
+    # Iteration body
+    for i in range(batch[0], batch[1]):
+        # timestamp
+        t = time.strftime('%Y-%m-%d: %H:%M:%S',time.localtime(time.time()))
+        s = samples[i].split(" ")
+        ra = s[1]
+        # get params
+        RA_h = ra[1:3]
+        RA_m = ra[3:5]
+        RA_s = ra[5:10]
+        DEC_d = ra[10:13]
+        DEC_a = ra[13:15]
+        DEC_s = ra[15:19]
+        if DEC_d[0] == '−':
+            DEC_d = '-' + DEC_d[1:]
+        update_param = {'RA': " ".join([RA_h, RA_m, RA_s, DEC_d, DEC_a, DEC_s])}
+        print(update_param['RA'])
+        # update param
+        dataFetcher.get_params_update(params_update=update_param)
+        # download file
+        fname_temp = s[1]
+        fname = fname_temp + '.fits'
+        savepath = os.path.join(savefolder,fname)
+        print("[%s] processing on sample fname %s" % (t, fname))
+        try:
+            dataFetcher.save_data(savepath)
+        except:
+            fl.write("%d: %s" % (i, fname))
+            continue
+        # print log
+        # print('[%s]: Fetching %s' % (t, fname))
+    fl.close()
+
+def batch_download_dat(dataFetcher, listpath, batch, savefolder):
+    """Batch download the samples
+
+    Inputs
+    ======
+    dataFetecher: class DataFetcher
+        The data fetcher that hosts url and params
+    listpath: str
+        The path of the data list
+    batch: tuple
+        The region of indices w.r.t. samples to be fetched.
+    savefolder: str
+        Folder to save the fetched sample files
+    """
+    import time
+    timestamp = time.strftime('%Y-%m-%d',time.localtime(time.time()))
+    print('[%s]: Downloading samples from %s' % (timestamp, dataFetcher.get_url()))
+
+    # open listpath
+    with open(listpath,'rb') as f:
+        lines = f.readlines() # The first line is not required.
+    # regularize the batch
+    if batch[0] < 0:
+        batch[0] = 0
+    if batch[1] > len(lines):
+        batch[1] = len(lines)
+    # log file optional
+    fl = open('log.txt', 'a')
+    # Iteration body
+    for i in range(batch[0], batch[1]):
+        # timestamp
+        t = time.strftime('%Y-%m-%d',time.localtime(time.time()))
+        # get params
+        sample_line = str(lines[i], 'utf-8').split(' ')
+        RA_h = sample_line[4]
+        RA_m = sample_line[5]
+        RA_s = sample_line[6]
+        DEC_d = sample_line[8]
+        DEC_m = sample_line[9]
+        DEC_s = sample_line[10]
+        update_ra = " ".join([RA_h, RA_m, RA_s, DEC_d, DEC_m, DEC_s])
+        update_param = {'RA': update_ra}
+        # update param
+        dataFetcher.get_params_update(params_update=update_param)
+        # download file
+        RA_h = "%02d" % int(sample_line[4])
+        RA_m = "%02d" % int(sample_line[5])
+        RA_s = float(sample_line[6])
+        RA_s_i = np.fix(np.round(RA_s*100)/100)
+        RA_s_f = np.round(RA_s*100)/100 - RA_s_i
+        RA_s_new = "%02d.%02d" % (int(RA_s_i), int(RA_s_f*100))
+        DEC_d = sample_line[8]
+        if DEC_d[0] == '+':
+            DEC_d = "+%02d" % (int(DEC_d[1:]))
+        else:
+            DEC_d = "-%02d" % (int(DEC_d[1:]))
+        DEC_m = "%02d" % int(sample_line[9])
+        DEC_s = float(sample_line[10])
+        DEC_s_i = np.fix(np.round(DEC_s*10)/10)
+        DEC_s_f = np.round(DEC_s*10)/10 - DEC_s_i
+        DEC_s_new = "%02d.%01d" % (int(DEC_s_i), int(DEC_s_f*10))
+        fname = 'J' + ''.join([RA_h, RA_m, RA_s_new, DEC_d, DEC_m, DEC_s_new]) + ".fits"
+        savepath = os.path.join(savefolder,fname)
+        try:
+            dataFetcher.save_data(savepath)
+        except:
+            fl.write("%d: %s" % (i, fname))
+            continue
+        # print log
+        print('[%s]: Fetching %s' % (t, fname), i)
+    f.close()
+    fl.close()
 
 def main():
     # Init
@@ -230,7 +457,7 @@ def main():
     df = DataFetcher(url=url, params=params)
 
     # download
-    batch_download_csv(dataFetcher=df,
+    batch_download_dat(dataFetcher=df,
                    listpath=listpath,
                    batch=batch,
                    savefolder=savefolder)
