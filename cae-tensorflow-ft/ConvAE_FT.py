@@ -290,7 +290,7 @@ class ConvAE():
         W_soft = weight_variable([self.encode_nodes, self.numclass])
         b_soft = bias_variable([self.numclass])
 
-        self.l_cnn = tf.matmul(self.l_en, W_soft) + b_soft
+        self.l_cnn = tf.nn.softmax(tf.matmul(self.l_en, W_soft) + b_soft)
         # generate the optimizer
         self.gen_cnn_optimizer(learning_rate = learning_rate)
 
@@ -337,7 +337,7 @@ class ConvAE():
                 self.sess.run(self.optimizer, feed_dict={self.l_in: batch, self.droprate: droprate})
 
             timestamp = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
-            print("[%s] Epoch: %03d\tAverage loss: %.3f" %
+            print("[%s] Epoch: %03d\tAverage loss: %.6f" %
                 (timestamp, epoch+1,
                  self.sess.run(self.cost,
                                feed_dict={self.l_in: batch, self.droprate: droprate})))
@@ -367,7 +367,7 @@ class ConvAE():
 
             # <TODO> validation
             timestamp = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
-            print("[%s] Epoch: %03d\tAverage loss: %.3f" %
+            print("[%s] Epoch: %03d\tAverage loss: %.6f" %
                 (timestamp, epoch+1,
                  self.sess.run(self.cnn_cost, feed_dict={self.l_in: batch, self.y_: batch_label, self.droprate: droprate})))
 
