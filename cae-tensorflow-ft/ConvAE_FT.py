@@ -21,6 +21,12 @@ Update
 [2017-09-04] Add methods to fine-tuning the network.
 [2017-09-04] Change padding and stride strtegy to custom providing.
 [2017-09-04] Remove pooling staffs
+
+[2017-09-07] Add validation
+[2017-09-07] Add accuracy evalutation of CNN, i.e., fine-tuning
+[2017-09-07] Add calculation of PSNR <pending>
+[2017-09-07] Add draw_training_curve()
+[2017-09-07] Add learning_rate decreasing strategy
 """
 
 import tensorflow as tf
@@ -67,6 +73,7 @@ class ConvAE():
                  padding = ('SAME','SAME'),
                  stride = (2, 2),
                  numclass = 5,
+                 valrate = 0.2,
                  ):
         """
         The initializer
@@ -82,7 +89,7 @@ class ConvAE():
         self.numclass = numclass # used for fine tuning, maybe need reconsidered.
         self.y_ = tf.placeholder(tf.float32, shape=[None, numclass], name="cnn-labels") # placeholder of y
         self.droprate = tf.placeholder(tf.float32, name="droprate")
-
+        self.valrate = 0.2
 
     def gen_BatchIterator(self, data, batch_size=100, shuffle=True):
         """
@@ -293,6 +300,8 @@ class ConvAE():
         self.l_cnn = tf.nn.softmax(tf.matmul(self.l_en, W_soft) + b_soft)
         # generate the optimizer
         self.gen_cnn_optimizer(learning_rate = learning_rate)
+        # generate the accuracy estimator
+        self.gen_accuracy()
 
     def gen_cost(self):
         """Generate the cost, usually be the mean square error."""
@@ -320,7 +329,70 @@ class ConvAE():
         self.gen_cnn_cost()
         self.cnn_optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.cnn_cost)
 
-    def cae_train(self, data, num_epochs=20, learning_rate=0.01, batch_size=100, droprate=0.5):
+
+    def gen_validation(self, data, label=None):
+        """Separate the dataset into training and validation subsets.
+
+        inputs
+        ======
+        data: np.ndarray
+            The input data, 4D matrix
+        label: np.ndarray or list, opt
+            The labels w.r.t. input data, optional
+
+        outputs
+        =======
+        data_train: {"data": , "label": }
+        data_val: {"data":, "label":}
+        """
+        if label is None:
+            label_train = None
+            label_val = None
+            idx = np.random.permutation(len(data))
+            num_val = int(len(data)*self.valrate)
+            data_val = {"data": data[0:num_val,:,:,:],
+                        "label": label_val}
+            # train
+            data_train = {"data": data[num_val:,:,:,:],
+                          "label": label_train}
+        else:
+            # Training and validation
+            idx = np.random.permutation(len(data))
+            num_val = int(len(data)*self.valrate)
+            data_val = {"data": data[0:num_val,:,:,:],
+                        "label": label[0:num_val,:]}
+            # train
+            data_train = {"data": data[num_val:,:,:,:],
+                          "label": label[num_val:,:]}
+
+        return data_train,data_val
+
+    def change_learning_rate(self,learning_rate, epoch, derate=1/16, deepoch=20):
+        """Due to the fixed learning rate may lead jitting of training loss,
+        when the network approaches to its optimum (hopefully...). The learning
+        rate can be adjust every some epochs with a slop or exponential-like (TODO).
+
+        inputs
+        ======
+        learning_rate: float
+            The original learning rate
+        epoch: int
+            The epoch now
+        derate: float
+            Slop of the decreasing
+        deepoch: int
+            Number of epochs when adjusting the rate
+
+        output
+        ======
+        learning_rate_now: float
+            The adjusted learning rate
+        """
+        return learning_rate - derate*(epoch/deepoch)
+
+    def cae_train(self, data, num_epochs=20,
+                  learning_rate=0.01, derate=1/16, deepoch=20,
+                  batch_size=100, droprate=0.5):
         """Train the net"""
         timestamp = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
         print("[%s] Training parameters\n" % (timestamp))
@@ -330,17 +402,36 @@ class ConvAE():
         init_op = tf.global_variables_initializer()
         self.sess = tf.InteractiveSession()
         self.sess.run(init_op)
+        # save loss for drawing
+        self.cae_trainloss = []
+        self.cae_valloss = []
 
-        # generate optimizer
+        # generate training and validation samples
+        data_train,data_val = self.gen_validation(data=data, label=None)
+        numbatch_trn = len(data_train["data"]) // batch_size
+        numbatch_val = len(data_val["data"]) // batch_size
         for epoch in range(num_epochs):
-            for batch in self.gen_BatchIterator(data=data, batch_size=batch_size):
+            new_learning_rate = self.change_learning_rate(learning_rate, epoch,
+                                                          derate=derate,
+                                                          deepoch=deepoch)
+            #self.gen_optimizer(learning_rate = new_learning_rate)
+            #init_optimizer = tf.variables_initializer(var_list=[self.optimizer])
+            #self.sess.run(init_optimizer)
+            cost_trn = 0
+            cost_val = 0
+            for batch in self.gen_BatchIterator(data=data_train["data"], batch_size=batch_size):
                 self.sess.run(self.optimizer, feed_dict={self.l_in: batch, self.droprate: droprate})
+                cost_trn += self.sess.run(self.cost,
+                               feed_dict={self.l_in: batch, self.droprate: 0.0})
+
+            for batch in self.gen_BatchIterator(data=data_val["data"], batch_size=batch_size):
+                cost_val += self.sess.run(self.cost, feed_dict={self.l_in: batch, self.droprate: 0.0})
 
             timestamp = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
-            print("[%s] Epoch: %03d\tAverage loss: %.6f" %
-                (timestamp, epoch+1,
-                 self.sess.run(self.cost,
-                               feed_dict={self.l_in: batch, self.droprate: droprate})))
+            print("[%s] Epoch: %03d\tTraining loss: %.6f\tValidation loss: %.6f" %
+                (timestamp, epoch+1, cost_trn/numbatch_trn, cost_val/numbatch_val))
+            self.cae_trainloss.append(cost_trn/numbatch_trn)
+            self.cae_valloss.append(cost_val/numbatch_val)
 
     def cnn_train(self, data, label, num_epochs=20, learning_rate=0.01, batch_size=100, droprate=0.5):
         """Train the net"""
@@ -351,11 +442,17 @@ class ConvAE():
         # init_op = tf.global_variables_initializer()
         # self.sess = tf.InteractiveSession()
         # self.sess.run(init_op)
+        # save loss for drawing
+        self.cae_trainloss = []
+        self.cae_valloss = []
 
-        # generate optimizer
+        # generate training and validation samples
+        data_train,data_val = self.gen_validation(data=data, label=label)
         for epoch in range(num_epochs):
-            data_batch,label_batch,numbatch = self.gen_cnn_BatchIterator(data=data,
-                                                                         label=label,
+            cost = 0
+            acc = 0
+            data_batch,label_batch,numbatch = self.gen_cnn_BatchIterator(data=data_train["data"],
+                                                                         label=data_train["label"],
                                                                          batch_size=batch_size)
             for i in range(numbatch):
                 batch = data_batch[i*batch_size:(i+1)*batch_size,:,:,:]
@@ -364,13 +461,20 @@ class ConvAE():
                               feed_dict={self.l_in: batch,
                                          self.y_: batch_label,
                                          self.droprate: droprate})
-
-            # <TODO> validation
+                cost += self.sess.run(self.cnn_cost,
+                                      feed_dict={self.l_in: batch, self.y_: batch_label, self.droprate: 0.0})
+                acc += self.cnn_accuracy(img=batch, label=batch_label)
+            # validation
+            valloss = self.sess.run(self.cnn_cost,
+                                    feed_dict={self.l_in: data_val["data"],
+                                               self.y_: data_val["label"],
+                                               self.droprate: 0.0})
+            valacc = self.cnn_accuracy(img=data_val["data"], label=data_val["label"])
             timestamp = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
-            print("[%s] Epoch: %03d\tAverage loss: %.6f" %
-                (timestamp, epoch+1,
-                 self.sess.run(self.cnn_cost, feed_dict={self.l_in: batch, self.y_: batch_label, self.droprate: droprate})))
-
+            print("[%s] Epoch: %03d Trn loss: %.6f Trn acc: %.3f Val loss: %.6f Val acc: %.3f" %
+                (timestamp, epoch+1, cost/numbatch, acc/numbatch, valloss, valacc))
+            self.cae_trainloss.append(cost/numbatch)
+            self.cae_valloss.append(valloss)
 
     def cae_test(self, img):
         """Test the trained network,
@@ -454,12 +558,34 @@ class ConvAE():
 
         # generate predicted images
         if hasattr(self, 'sess'):
-            label_pre = self.sess.run(self.l_cnn, feed_dict={self.l_in: img_te, self.droprate: 0.0})
+            label_pre = tf.argmax(self.sess.run(self.l_cnn, feed_dict={self.l_in: img_te, self.droprate: 0.0}))
         else:
             print("You should train the network.")
             return None
 
-        return label_pre
+        return label_pre.eval()
+
+    def gen_accuracy(self):
+        """Generate the accuracy tensor"""
+        self.correction_prediction = tf.equal(tf.argmax(self.l_cnn, 1), tf.argmax(self.y_,1))
+        self.accuracy = tf.reduce_mean(tf.cast(self.correction_prediction, tf.float32))
+
+    def cnn_accuracy(self, img, label):
+        """Calculate the classification accuracy of the cnn network.
+
+        inputs
+        ======
+        img: np.ndarray
+            The images to be classified
+        label: np.ndarray, one hot
+            The labels w.r.t. the images
+
+        output
+        ======
+        acc: float
+            Classification accuracy
+        """
+        return self.accuracy.eval(feed_dict={self.l_in: img, self.y_: label, self.droprate: 0.0})
 
 
     def cae_encode(self, img):
