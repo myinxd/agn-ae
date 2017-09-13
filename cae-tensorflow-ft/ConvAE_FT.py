@@ -88,6 +88,18 @@ class ConvAE():
         self.stride = stride
         self.numclass = numclass # used for fine tuning, maybe need reconsidered.
         self.y_ = tf.placeholder(tf.float32, shape=[None, numclass], name="cnn-labels") # placeholder of y
+        self.l_cnn = tf.placeholder(tf.float32, shape=[None, numclass], name="l_cnn") # cnn
+        self.l_en = tf.placeholder(tf.float32, shape=[None, self.encode_nodes], name="l_en")
+        # Input layer
+        in_depth = self.input_shape[3]
+        in_row = self.input_shape[1]
+        in_col = self.input_shape[2]
+        self.l_in = tf.placeholder(tf.float32,
+                                [None,in_row,in_col,in_depth],
+                                name='l_in')
+        # decoder layer
+        self.l_de = tf.placeholder(tf.float32,
+                                   [None,in_row,in_col,in_depth], name='l_de')
         self.droprate = tf.placeholder(tf.float32, name="droprate")
         self.valrate = 0.2
 
@@ -171,14 +183,6 @@ class ConvAE():
         # Init
         self.encoder = []
         self.shapes_en = []
-
-        # Input layer
-        in_depth = self.input_shape[3]
-        in_row = self.input_shape[1]
-        in_col = self.input_shape[2]
-        self.l_in = tf.placeholder(tf.float32,
-                                [None,in_row,in_col,in_depth],
-                                name='l_in')
 
         # Encoder layers
         current_input = self.l_in
@@ -327,7 +331,7 @@ class ConvAE():
             https://stackoverflow.com/questions/38778760/tensorflow-no-gradients-provided-for-any-variable
         """
         self.gen_cnn_cost()
-        self.cnn_optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.cnn_cost)
+        self.cnn_optimizer = tf.train.AdamOptimizer(learning_rate,name='cnn-optimizer').minimize(self.cnn_cost)
 
 
     def gen_validation(self, data, label=None):
@@ -439,12 +443,13 @@ class ConvAE():
         print("[%s] Training parameters\n" % (timestamp))
         print("[%s] Epochs: %d\tLearning rate: %.2f\n" % (timestamp, num_epochs, learning_rate))
         print("[%s] Batch size: %d\tDrop rate: %.2f\n" % (timestamp, batch_size, droprate))
-        # init_op = tf.global_variables_initializer()
-        # self.sess = tf.InteractiveSession()
-        # self.sess.run(init_op)
+        if not hasattr(self, 'sess'):
+            init_op = tf.global_variables_initializer()
+            self.sess = tf.InteractiveSession()
+            self.sess.run(init_op)
         # save loss for drawing
-        self.cae_trainloss = []
-        self.cae_valloss = []
+        self.cnn_trainloss = []
+        self.cnn_valloss = []
 
         # generate training and validation samples
         data_train,data_val = self.gen_validation(data=data, label=label)
@@ -473,8 +478,8 @@ class ConvAE():
             timestamp = time.strftime('%Y-%m-%d: %H:%M:%S', time.localtime(time.time()))
             print("[%s] Epoch: %03d Trn loss: %.6f Trn acc: %.3f Val loss: %.6f Val acc: %.3f" %
                 (timestamp, epoch+1, cost/numbatch, acc/numbatch, valloss, valacc))
-            self.cae_trainloss.append(cost/numbatch)
-            self.cae_valloss.append(valloss)
+            self.cnn_trainloss.append(cost/numbatch)
+            self.cnn_valloss.append(valloss)
 
     def cae_test(self, img):
         """Test the trained network,
@@ -587,7 +592,6 @@ class ConvAE():
         """
         return self.accuracy.eval(feed_dict={self.l_in: img, self.y_: label, self.droprate: 0.0})
 
-
     def cae_encode(self, img):
         """Test the trained network,
 
@@ -678,6 +682,7 @@ class ConvAE():
                     'l_de': self.l_de.name,
                     'l_cnn': self.l_cnn.name,
                     'y_':self.y_.name,
+                    'cnn_cost':self.cnn_cost.name,
                     'droprate': self.droprate.name,
                     'netpath': netpath}
         with open(namepath, 'wb') as fp:
