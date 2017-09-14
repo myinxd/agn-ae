@@ -106,31 +106,33 @@ class ConvNet(ConvAE):
             except:
                 print("Some thing wrong when load the pretrained network...")
 
-
     def cnn_build(self, learning_rate):
         """Build the cnn for fine-tuning, just add a softmax layer after the encoder layer.
            Since the weights are shared between encoder and decoder, the fine-tuned weights
            can be reused.
         """
-        def weight_variable(shape):
+        def weight_variable(shape, name):
             initial = tf.truncated_normal(shape, stddev=0.1)
-            return tf.Variable(initial)
+            return tf.Variable(initial, name=name)
 
-        def bias_variable(shape):
+        def bias_variable(shape, name):
             initial = tf.constant(0.1, shape=shape)
-            return tf.Variable(initial)
+            return tf.Variable(initial, name=name)
 
         # For instance the session is None,i.e. a new CNN network
         if self.sess is None:
             current_input = self.l_in
             for i, depth_output in enumerate(self.kernel_num):
                 depth_input = current_input.get_shape().as_list()[3]
+                W_name = "Conv_W{0}".format(i)
+                b_name = "Conv_b{0}".format(i)
                 W = weight_variable(shape=[self.kernel_size[i],
                                            self.kernel_size[i],
                                            depth_input,
                                            depth_output,
-                                           ])
-                b = bias_variable(shape=[depth_output])
+                                           ],
+                                    name=W_name)
+                b = bias_variable(shape=[depth_output], name=b_name)
                 output = tf.add(tf.nn.conv2d(current_input,
                                              W, strides=[1,self.stride[0],self.stride[1],1],
                                              padding=self.pad_en), b)
@@ -147,8 +149,10 @@ class ConvNet(ConvAE):
             depth_input = depth_dense
             current_input = l_en_dense
             for i, depth_output in enumerate(self.fc_nodes):
-                W = weight_variable(shape=[depth_input, depth_output])
-                b = bias_variable(shape=[depth_output])
+                W_name = "FC_W{0}".format(i)
+                b_name = "FC_b{0}".format(i)
+                W = weight_variable(shape=[depth_input, depth_output], name=W_name)
+                b = bias_variable(shape=[depth_output], name=b_name)
                 output = tf.nn.relu(tf.matmul(current_input, W) + b)
                 # dropout
                 output = tf.nn.dropout(output, self.droprate)
@@ -156,16 +160,15 @@ class ConvNet(ConvAE):
                 depth_input = depth_output
 
             # encode layer
-            W_en = weight_variable(shape=[depth_input, self.encode_nodes])
-            b_en = bias_variable(shape=[self.encode_nodes])
+            W_en = weight_variable(shape=[depth_input, self.encode_nodes], name="En_W")
+            b_en = bias_variable(shape=[self.encode_nodes], name="En_b")
             output = tf.nn.relu(tf.matmul(current_input, W_en) + b_en)
             current_input = output
             self.l_en = current_input
 
         # add a softmax layer
-        W_soft = weight_variable([self.encode_nodes, self.numclass])
-        b_soft = bias_variable([self.numclass])
-        self.var_list = [W_soft, b_soft]
+        W_soft = weight_variable([self.encode_nodes, self.numclass], name='cnn_W')
+        b_soft = bias_variable([self.numclass], name='cnn_b')
 
         self.l_cnn = tf.nn.softmax(tf.matmul(self.l_en, W_soft) + b_soft)
         # generate the optimizer
@@ -198,11 +201,6 @@ class ConvNet(ConvAE):
         if self.sess is None:
             init_op = tf.global_variables_initializer()
             self.sess = tf.InteractiveSession()
-            self.sess.run(init_op)
-        else:
-            # Init some variables
-            # init_op = tf.variables_initializer(var_list=self.var_list)
-            init_op = tf.global_variables_initializer()
             self.sess.run(init_op)
 
         # save loss for drawing

@@ -27,6 +27,8 @@ Update
 [2017-09-07] Add calculation of PSNR <pending>
 [2017-09-07] Add draw_training_curve()
 [2017-09-07] Add learning_rate decreasing strategy
+
+[2017-09-14] Variable space to fix the checkpoint, and solve restore problem
 """
 
 import tensorflow as tf
@@ -172,13 +174,13 @@ class ConvAE():
         """Construct the network, including ConvLayers and FC layers."""
 
         # Useful methods
-        def weight_variable(shape):
+        def weight_variable(shape, name):
             initial = tf.truncated_normal(shape, stddev=0.1)
-            return tf.Variable(initial)
+            return tf.Variable(initial, name=name)
 
-        def bias_variable(shape):
+        def bias_variable(shape, name):
             initial = tf.constant(0.1, shape=shape)
-            return tf.Variable(initial)
+            return tf.Variable(initial, name=name)
 
         # Init
         self.encoder = []
@@ -189,12 +191,15 @@ class ConvAE():
         for i, depth_output in enumerate(self.kernel_num):
             depth_input = current_input.get_shape().as_list()[3]
             self.shapes_en.append(current_input.get_shape().as_list())
+            W_name = "Conv_En_W{0}".format(i)
+            b_name = "Conv_En_b{0}".format(i)
             W = weight_variable(shape=[self.kernel_size[i],
                                        self.kernel_size[i],
                                        depth_input,
                                        depth_output,
-                                       ])
-            b = bias_variable(shape=[depth_output])
+                                       ],
+                                name=W_name)
+            b = bias_variable(shape=[depth_output], name=b_name)
             self.encoder.append(W) # share
             output = tf.add(tf.nn.conv2d(current_input,
                                             W, strides=[1,self.stride[0],self.stride[1],1],
@@ -216,8 +221,10 @@ class ConvAE():
             self.fc_depth=[] # depth_input of the encoder
             for i, depth_output in enumerate(self.fc_nodes):
                 self.fc_depth.append(depth_input)
-                W = weight_variable(shape=[depth_input, depth_output])
-                b = bias_variable(shape=[depth_output])
+                W_name = "FC_En_W{0}".format(i)
+                b_name = "FC_En_b{0}".format(i)
+                W = weight_variable(shape=[depth_input, depth_output], name=W_name)
+                b = bias_variable(shape=[depth_output], name=b_name)
                 self.en_fc.append(W) # share weight
                 output = tf.nn.relu(tf.matmul(current_input, W) + b)
                 # dropout
@@ -226,8 +233,8 @@ class ConvAE():
                 depth_input = depth_output
 
             # encode layer
-            W_en = weight_variable(shape=[depth_input, self.encode_nodes])
-            b_en = bias_variable(shape=[self.encode_nodes])
+            W_en = weight_variable(shape=[depth_input, self.encode_nodes], name="En_W")
+            b_en = bias_variable(shape=[self.encode_nodes], name="En_b")
             output = tf.nn.relu(tf.matmul(current_input, W_en) + b_en)
             current_input = output
             self.l_en = current_input
@@ -238,15 +245,16 @@ class ConvAE():
                 depth_output = self.fc_nodes[-1]
             else:
                 depth_output = depth_dense
-            b_de = bias_variable(shape=[depth_output])
+            b_de = bias_variable(shape=[depth_output], name="De_b")
             output = tf.nn.relu(tf.matmul(current_input, W_de) + b_de)
             current_input = output
 
             # fc layers
             for i in range(len(self.fc_nodes)-1, -1, -1):
                 depth_output = self.fc_depth[i]
+                b_name = "FC_De_b{0}".format(i)
                 W = tf.transpose(self.en_fc[i])
-                b = bias_variable(shape=[depth_output])
+                b = bias_variable(shape=[depth_output], name=b_name)
                 output = tf.nn.relu(tf.matmul(current_input, W) + b)
                 # dropout
                 output = tf.nn.dropout(output, self.droprate)
@@ -273,7 +281,8 @@ class ConvAE():
 
         for i, shape in enumerate(self.shapes_de):
             W = self.decoder[i]
-            b = bias_variable(shape=(W.get_shape().as_list()[2],))
+            b_name = "Conv_De_b{0}".format(i)
+            b = bias_variable(shape=(W.get_shape().as_list()[2],), name=b_name)
             output = tf.add(tf.nn.conv2d_transpose(
                 current_input, W,
                 tf.stack([tf.shape(self.l_in)[0], shape[1], shape[2], shape[3]]),
@@ -290,16 +299,16 @@ class ConvAE():
            Since the weights are shared between encoder and decoder, the fine-tuned weights
            can be reused.
         """
-        def weight_variable(shape):
+        def weight_variable(shape, name):
             initial = tf.truncated_normal(shape, stddev=0.1)
-            return tf.Variable(initial)
+            return tf.Variable(initial, name=name)
 
-        def bias_variable(shape):
+        def bias_variable(shape, name):
             initial = tf.constant(0.1, shape=shape)
-            return tf.Variable(initial)
+            return tf.Variable(initial, name=name)
         # add a softmax layer
-        W_soft = weight_variable([self.encode_nodes, self.numclass])
-        b_soft = bias_variable([self.numclass])
+        W_soft = weight_variable([self.encode_nodes, self.numclass], name="cnn_W")
+        b_soft = bias_variable([self.numclass], name="cnn_b")
 
         self.l_cnn = tf.nn.softmax(tf.matmul(self.l_en, W_soft) + b_soft)
         # generate the optimizer
@@ -320,7 +329,7 @@ class ConvAE():
     def gen_optimizer(self, learning_rate=0.01):
         """Generate the optimizer to minimize the cose"""
         self.gen_cost()
-        self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate, name="cae-optimizer").minimize(self.cost)
 
     def gen_cnn_optimizer(self, learning_rate = 0.01):
         """Generate the optimizer for the fine-tuning cnn.
@@ -572,8 +581,8 @@ class ConvAE():
 
     def gen_accuracy(self):
         """Generate the accuracy tensor"""
-        self.correction_prediction = tf.equal(tf.argmax(self.l_cnn, 1), tf.argmax(self.y_,1))
-        self.accuracy = tf.reduce_mean(tf.cast(self.correction_prediction, tf.float32))
+        self.correction_prediction = tf.equal(tf.argmax(self.l_cnn, 1), tf.argmax(self.y_,1), name="corr_pre")
+        self.accuracy = tf.reduce_mean(tf.cast(self.correction_prediction, tf.float32), name="acc")
 
     def cnn_accuracy(self, img, label):
         """Calculate the classification accuracy of the cnn network.

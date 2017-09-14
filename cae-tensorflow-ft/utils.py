@@ -682,7 +682,8 @@ def down_dimension(code, method='PCA', params=None):
     return code_dim
 
 def vec2onehot(label, numclass):
-    """Vector to one hot structure.
+    """
+    Vector to one hot structure.
 
     inputs
     ======
@@ -697,7 +698,7 @@ def vec2onehot(label, numclass):
         The one hot style label matrix
     """
     label_onehot = np.zeros((len(label), numclass))
-    for i,l in enumerate(label):
+    for i, l in enumerate(label):
         label_onehot[i, int(l)] = 1
 
     return label_onehot
