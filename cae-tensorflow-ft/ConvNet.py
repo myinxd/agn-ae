@@ -124,8 +124,8 @@ class ConvNet(ConvAE):
             current_input = self.l_in
             for i, depth_output in enumerate(self.kernel_num):
                 depth_input = current_input.get_shape().as_list()[3]
-                W_name = "Conv_W{0}".format(i)
-                b_name = "Conv_b{0}".format(i)
+                W_name = "Conv_En_W{0}".format(i)
+                b_name = "Conv_En_b{0}".format(i)
                 W = weight_variable(shape=[self.kernel_size[i],
                                            self.kernel_size[i],
                                            depth_input,
@@ -149,8 +149,8 @@ class ConvNet(ConvAE):
             depth_input = depth_dense
             current_input = l_en_dense
             for i, depth_output in enumerate(self.fc_nodes):
-                W_name = "FC_W{0}".format(i)
-                b_name = "FC_b{0}".format(i)
+                W_name = "FC_En_W{0}".format(i)
+                b_name = "FC_En_b{0}".format(i)
                 W = weight_variable(shape=[depth_input, depth_output], name=W_name)
                 b = bias_variable(shape=[depth_output], name=b_name)
                 output = tf.nn.relu(tf.matmul(current_input, W) + b)
